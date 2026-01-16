@@ -4,6 +4,7 @@
 #include "pros/screen.hpp"
 #include <cstdint>
 #include <vector>
+#include "fmt/format.h"
 
 namespace sfx {
 
@@ -33,7 +34,7 @@ public:
   /// Extra pixel tolerance for touch detection around buttons
   inline static constexpr int PADDING = 5;
   ///< approx width per char in pixels
-  static constexpr int CHAR_WIDTH = 8; 
+  static constexpr int CHAR_WIDTH = 8;
 
   // UI Styling
 
@@ -47,6 +48,20 @@ public:
   inline static constexpr int ROW_HEIGHT = 20;
 
   Manager() = default;
+
+  /**
+   * @brief RAII wrapper for PROS mutexes.
+   * @details Automatically takes the mutex on construction and gives it on
+   * destruction.
+   */
+  struct MutexGuard {
+    pros::Mutex &m;
+    explicit MutexGuard(pros::Mutex &m) : m(m) { m.take(); }
+    explicit MutexGuard(pros::Mutex &m, uint32_t timeout) : m(m) {
+      m.take(timeout);
+    }
+    ~MutexGuard() { m.give(); }
+  };
 
   /**
    * @brief Renders the three interactive capsule buttons at the bottom of the
@@ -107,12 +122,54 @@ public:
    * printToScreen(false, "Chassis", "Position: %.1f", 10.5);
    * @endcode
    */
-  template<typename... Args>
-  void printToScreen(const char* format, Args&&... args);
+  template <typename... Args>
+  void printToScreen(const char *format, Args &&...args) {
+    // Convenience wrapper: forwards to full overload
+    printToScreen(false, "", format, std::forward<Args>(args)...);
+  }
 
   // Allow overloading
-  template<typename... Args>
-  void printToScreen(bool clear, const char* name, const char* format, Args&&... args);
+  // This handles the actual logic.
+  template <typename... Args>
+  void printToScreen(bool clear, const char *name, const char *format,
+                     Args &&...args) {
+    MutexGuard m(sharedMutex);
+
+    // Clear screen area if requested
+    if (clear) {
+      textLines.clear();
+      pros::screen::erase_rect(0, 0, 480, MAX_ROWS * ROW_HEIGHT);
+    }
+
+    // Format the string safely using fmt
+    std::string formatted = fmt::format(format, std::forward<Args>(args)...);
+
+    // Prepend the name if provided
+    if (name && name[0] != '\0') {
+      formatted = std::string(name) + ": " + formatted;
+    }
+
+    // Automatic text wrapping (naive, by character count)
+    size_t maxCharsPerLine = SCREEN_WIDTH / CHAR_WIDTH;
+    size_t start = 0;
+    while (start < formatted.size()) {
+      std::string line = formatted.substr(start, maxCharsPerLine);
+      textLines.push_back(line);
+      start += maxCharsPerLine;
+    }
+
+    // Clamp the number of lines
+    while (textLines.size() > MAX_ROWS) {
+      textLines.erase(textLines.begin());
+    }
+
+    // Redraw all lines
+    for (size_t i = 0; i < textLines.size(); ++i) {
+      pros::screen::print(pros::E_TEXT_SMALL, 10,
+                          static_cast<int>(i * ROW_HEIGHT), "%s",
+                          textLines[i].c_str());
+    }
+  }
 
   inline static constexpr int printToScreenBuffer = 128;
 

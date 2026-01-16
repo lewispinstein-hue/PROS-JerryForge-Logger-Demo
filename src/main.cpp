@@ -115,7 +115,7 @@ void initialize() {
 
   // Print startup success to the brain screen
   display.clearScreen();
-  display.printToScreen("System Ready! ");
+  display.printToScreen("System Ready!");
   display.printToScreen("Battery: {:.1f}%", pros::battery::get_capacity());
 }
 

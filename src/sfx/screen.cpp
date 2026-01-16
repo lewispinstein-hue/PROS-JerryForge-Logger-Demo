@@ -1,26 +1,11 @@
 #include "sfx/screen.hpp" // parent header
-#include "fmt/core.h"
-#include "fmt/format.h"
 #include "pros/screen.hpp"
 #include <cstdint>
-#include <cstring> // for std::strlen
 #include <vector>
 
 namespace sfx {
 
 namespace screen {
-
-/**
- * @brief RAII wrapper for PROS mutexes.
- * @details Automatically takes the mutex on construction and gives it on
- * destruction.
- */
-struct MutexGuard {
-  pros::Mutex &m;
-  explicit MutexGuard(pros::Mutex &m) : m(m) { m.take(); }
-  explicit MutexGuard(pros::Mutex &m, uint32_t timeout) : m(m) { m.take(timeout); }
-  ~MutexGuard() { m.give(); }
-};
 
 void Manager::clearScreen() {
   MutexGuard m(sharedMutex);
@@ -126,54 +111,6 @@ ButtonId Manager::waitForBottomButtonTap(uint32_t timeout) {
     pros::delay(20);
   }
   return ButtonId::NONE;
-}
-
-template <typename... Args>
-void Manager::printToScreen(const char *format, Args &&...args) {
-  // Convenience wrapper: forwards to full overload
-  printToScreen(false, "", format, std::forward<Args>(args)...);
-}
-
-// This handles the actual logic.
-template <typename... Args>
-void Manager::printToScreen(bool clear, const char *name, const char *format,
-                            Args &&...args) {
-  MutexGuard m(sharedMutex);
-
-  // Clear screen area if requested
-  if (clear) {
-    textLines.clear();
-    pros::screen::erase_rect(0, 0, 480, MAX_ROWS * ROW_HEIGHT);
-  }
-
-  // Format the string safely using fmt
-  std::string formatted = fmt::format(format, std::forward<Args>(args)...);
-
-  // Prepend the name if provided
-  if (name && name[0] != '\0') {
-    formatted = std::string(name) + ": " + formatted;
-  }
-
-  // Automatic text wrapping (naive, by character count)
-  size_t maxCharsPerLine = SCREEN_WIDTH / CHAR_WIDTH;
-  size_t start = 0;
-  while (start < formatted.size()) {
-    std::string line = formatted.substr(start, maxCharsPerLine);
-    textLines.push_back(line);
-    start += maxCharsPerLine;
-  }
-
-  // Clamp the number of lines
-  while (textLines.size() > MAX_ROWS) {
-    textLines.erase(textLines.begin());
-  }
-
-  // Redraw all lines
-  for (size_t i = 0; i < textLines.size(); ++i) {
-    pros::screen::print(pros::E_TEXT_SMALL, 10,
-                        static_cast<int>(i * ROW_HEIGHT), "%s",
-                        textLines[i].c_str());
-  }
 }
 
 bool Manager::waitForScreenTouch(uint32_t timeoutMs, bool detectTouchOnly) {
