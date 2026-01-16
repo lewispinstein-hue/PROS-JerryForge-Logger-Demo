@@ -142,7 +142,7 @@ public:
     }
 
     // Format the string safely using fmt
-    std::string formatted = fmt::format(format, std::forward<Args>(args)...);
+    std::string formatted = fmt::format(fmt::runtime(format), std::forward<Args>(args)...);
 
     // Prepend the name if provided
     if (name && name[0] != '\0') {
