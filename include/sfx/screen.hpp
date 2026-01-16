@@ -1,10 +1,10 @@
 #pragma once
 
+#include "fmt/format.h"
 #include "pros/rtos.hpp"
 #include "pros/screen.hpp"
 #include <cstdint>
 #include <vector>
-#include "fmt/format.h"
 
 namespace sfx {
 
@@ -54,13 +54,13 @@ public:
    * @details Automatically takes the mutex on construction and gives it on
    * destruction.
    */
-  struct MutexGuard {
+  struct unique_lock {
     pros::Mutex &m;
-    explicit MutexGuard(pros::Mutex &m) : m(m) { m.take(); }
-    explicit MutexGuard(pros::Mutex &m, uint32_t timeout) : m(m) {
+    explicit unique_lock(pros::Mutex &m) : m(m) { m.take(); }
+    explicit unique_lock(pros::Mutex &m, uint32_t timeout) : m(m) {
       m.take(timeout);
     }
-    ~MutexGuard() { m.give(); }
+    ~unique_lock() { m.give(); }
   };
 
   /**
@@ -123,17 +123,9 @@ public:
    * @endcode
    */
   template <typename... Args>
-  void printToScreen(const char *format, Args &&...args) {
-    // Convenience wrapper: forwards to full overload
-    printToScreen(false, "", format, std::forward<Args>(args)...);
-  }
-
-  // Allow overloading
-  // This handles the actual logic.
-  template <typename... Args>
   void printToScreen(bool clear, const char *name, const char *format,
                      Args &&...args) {
-    MutexGuard m(sharedMutex);
+    unique_lock m(sharedMutex);
 
     // Clear screen area if requested
     if (clear) {
@@ -142,10 +134,11 @@ public:
     }
 
     // Format the string safely using fmt
-    std::string formatted = fmt::format(fmt::runtime(format), std::forward<Args>(args)...);
+    std::string formatted =
+        fmt::format(fmt::runtime(format), std::forward<Args>(args)...);
 
     // Prepend the name if provided
-    if (name && name[0] != '\0') {
+    if (name != nullptr && name[0] != '\0') {
       formatted = std::string(name) + ": " + formatted;
     }
 
@@ -171,7 +164,11 @@ public:
     }
   }
 
-  inline static constexpr int printToScreenBuffer = 128;
+  template <typename... Args>
+  void printToScreen(const char *format, Args&&...args) {
+    // Convenience wrapper: forwards to full overload
+    printToScreen(false, "", format, std::forward<Args>(args)...);
+  }
 
 private:
   std::vector<std::string> textLines;

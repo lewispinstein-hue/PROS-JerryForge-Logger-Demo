@@ -53,12 +53,8 @@
 #include "sfx/motorChecks.hpp"        // For overheating checks
 #include <atomic>
 #include <cstdarg>
-#include <cstdio>
 #include <cstring>
-#include <fstream> // Required for file writing
-#include <string>
-#include <sys/stat.h> // Required for dating files with RTC
-#include <vector>
+
 
 namespace sfx {
 namespace Logger {

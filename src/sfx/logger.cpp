@@ -234,11 +234,11 @@ void printRunningTasks() {
   char buffer[1024];
   vTaskList(buffer);
 
-  printf("\n--- Task List ---\n");
-  printf("Name                         	State  Prio   Stack   Num\n");
-  printf("-------------------------------------------------------\n");
-  printf("%s", buffer);
-  printf("-------------------------------------------------------\n");
+  LOG_INFO("\n--- Task List ---\n");
+  LOG_INFO("Name                         	State  Prio   Stack   Num\n");
+  LOG_INFO("-------------------------------------------------------\n");
+  LOG_INFO("%s", buffer);
+  LOG_INFO("-------------------------------------------------------\n");
 }
 
 static void makeTimestampedFilename(char *out, size_t len) {
@@ -386,6 +386,7 @@ void startLogger() {
   // Static initialization ensures this only runs once
   static const pros::MotorGears drivetrain_gearset =
       pLeftDrivetrain->get_gearing();
+      
   static double divide_factor_drivetrainRPM = 1;
   switch (drivetrain_gearset) {
   case pros::MotorGears::rpm_100:
