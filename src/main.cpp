@@ -96,8 +96,6 @@ void initialize() {
   // 2. Pass the chassis and controllers to the logger so it can record them
   sfx::Logger::setRobot({
     .chassis = &chassis,
-    .lateralSettings = &lateral_controller,
-    .angularSettings = &angular_controller,
     .Left_Drivetrain = &left_mg,
     .Right_Drivetrain = &right_mg
   });

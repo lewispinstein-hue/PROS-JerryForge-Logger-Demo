@@ -1,3 +1,5 @@
+#include <chrono>
+#include <thread>
 #define LOG_SOURCE nullptr
 
 #include "sfx/logger.hpp"
@@ -22,8 +24,6 @@ pros::Mutex generalMutex;
 static lemlib::Chassis *pChassis = nullptr;
 static pros::MotorGroup *pLeftDrivetrain = nullptr;
 static pros::MotorGroup *pRightDrivetrain = nullptr;
-static lemlib::ControllerSettings *pLateralSettings = nullptr;
-static lemlib::ControllerSettings *pAngularSettings = nullptr;
 
 static std::vector<MotorMonitor>
     internalMotorsToScan; // Holds motors to watchdog scan
@@ -181,17 +181,14 @@ bool setRobot(RobotRef ref) {
   isConfigSet = true;
 
   if (ref.chassis == nullptr || ref.Left_Drivetrain == nullptr ||
-      ref.Right_Drivetrain == nullptr || ref.angularSettings == nullptr ||
-      ref.lateralSettings == nullptr) {
+      ref.Right_Drivetrain == nullptr) {
 
-    LOG_ERROR("setRobot(RobotRef ref) called with nullptr arguments!\n");
+    LOG_FATAL("setRobot(RobotRef ref) called with nullptr arguments!\n");
     return false; // Stop here, don't link variables
   }
 
   // Store the Memory addresses of the objects passed in
   pChassis = ref.chassis;
-  pAngularSettings = ref.angularSettings;
-  pLateralSettings = ref.lateralSettings;
   pLeftDrivetrain = ref.Left_Drivetrain;
   pRightDrivetrain = ref.Right_Drivetrain;
 
@@ -199,20 +196,12 @@ bool setRobot(RobotRef ref) {
   return true;
 }
 
-bool checkRobotConfig() {
+bool checkRobotConfig(bool checkLemLib = true) {
   MutexGuard m(generalMutex);
   bool allValid = true;
 
-  if (pChassis == nullptr) {
+  if (pChassis == nullptr && checkLemLib) {
     LOG_FATAL("Chassis pointer is NULL!\n");
-    allValid = false;
-  }
-  if (pAngularSettings == nullptr) {
-    LOG_FATAL("Angular Settings pointer is NULL!\n");
-    allValid = false;
-  }
-  if (pLateralSettings == nullptr) {
-    LOG_FATAL("Lateral Settings pointer is NULL!\n");
     allValid = false;
   }
   if (pLeftDrivetrain == nullptr) {
@@ -326,20 +315,6 @@ void logToSD(const char *levelStr, const char *fmt, ...) {
   }
 }
 
-void printControllerSettings(const char *name,
-                             lemlib::ControllerSettings *settings) {
-  LOG_INFO("----- %s -----", name);
-  LOG_INFO("kP: %.2f, kI: %.2f, kD: %.2f", settings->kP, settings->kI,
-           settings->kD);
-  LOG_INFO("Windup Range: %.2f", settings->windupRange);
-  LOG_INFO("Small Error: %.2f, Timeout: %.2f", settings->smallError,
-           settings->smallErrorTimeout);
-  LOG_INFO("Large Error: %.2f, Timeout: %.2f", settings->largeError,
-           settings->largeErrorTimeout);
-  LOG_INFO("Slew: %.2f", settings->slew);
-  LOG_INFO("--------------------------");
-}
-
 void printBatteryInfo() {
   MutexGuard m(generalMutex);
   double capacity = pros::battery::get_capacity();
@@ -386,7 +361,7 @@ void startLogger() {
   // Static initialization ensures this only runs once
   static const pros::MotorGears drivetrain_gearset =
       pLeftDrivetrain->get_gearing();
-      
+
   static double divide_factor_drivetrainRPM = 1;
   switch (drivetrain_gearset) {
   case pros::MotorGears::rpm_100:
@@ -427,7 +402,7 @@ void startLogger() {
                 break;
               }
             }
-            if ((pros::millis() - startTime) < waitForStdInTimeout - 20) {
+            if ((pros::millis() - startTime) < waitForStdInTimeout - 21) {
               LOG_WARN("Logger auto-started after timeout.\n");
             }
             pros::delay(20); // Small delay to prevent CPU hogging
@@ -438,27 +413,35 @@ void startLogger() {
         }
 
         pros::delay(1000); // controller RX settle
-        if (!checkRobotConfig()) {
+
+        // Check setup and allow for chassis * to be nullptr if not using lemlib
+        if (Config.printLemlibPose.load()) {
+          if (!checkRobotConfig()) {
+            LOG_FATAL("At least one pointer set by setRobot(RobotRef "
+                      "ref) is nullptr. Aborting!\n");
+            LOG_INFO("You can disable LemLib logging to allow logger to run "
+                     "without setting up the config.");
+            return;
+          } else {
+            LOG_INFO("All pointers set by setRobot(RobotRef ref) seem "
+                     "to be valid.");
+          }
+        } else if (!checkRobotConfig(false)) {
           LOG_FATAL("At least one pointer set by setRobot(RobotRef "
-                    "Config) is nullptr. Aborting!\n");
-          return;
-        } else {
-          LOG_INFO("All pointers set by setRobot(RobotRef Config) seem "
+                    "ref) is nullptr. Aborting!\n");
+        } else
+          LOG_INFO("All pointers set by setRobot(RobotRef ref) seem "
                    "to be valid.");
-        }
 
         try {
           // ----- Logging ----- //
-          // Log LemLib settings
-          printControllerSettings("Lateral PID", pLateralSettings);
-          fflush(stdout);
-          pros::delay(150);
-
-          printControllerSettings("Angular PID", pAngularSettings);
-          fflush(stdout);
-          pros::delay(150);
-
           if (Config.outputForJerryio.load()) {
+            if (!Config.printLemlibPose.load()) {
+              LOG_FATAL("You MUST have LemLib logging enabled to use "
+                        "outputForJerryio!");
+              LOG_FATAL("Enable LemLib logging or disable outputForJerryio");
+              return;
+            }
             LOG_INFO("[CSV_HEADER],X,Y,Theta,L_Vel,R_Vel\n");
             // THIS IS FOR LOGGING TO .log. We use a special format for this
             while (true) {
@@ -492,9 +475,9 @@ void startLogger() {
                   pChassis->getPose().x, pChassis->getPose().y,
                   pChassis->getPose().theta,
                   (pLeftDrivetrain->get_actual_velocity() /
-                   divide_factor_drivetrainRPM),
+                   divide_factor_drivetrainRPM * 100),
                   pRightDrivetrain->get_actual_velocity() /
-                      divide_factor_drivetrainRPM);
+                      divide_factor_drivetrainRPM * 100);
             }
 
             uint32_t now = pros::millis();

@@ -386,14 +386,6 @@ struct RobotRef {
    * valid and global. */
   lemlib::Chassis *chassis;
 
-  /** @brief Pointer to lateral PID settings (dumped at startup). Must be valid
-   * and global. */
-  lemlib::ControllerSettings *lateralSettings;
-
-  /** @brief Pointer to angular PID settings (dumped at startup). Must be valid
-   * and global. */
-  lemlib::ControllerSettings *angularSettings;
-
   /** @brief Pointer to left drivetrain motor group for velocity logging. */
   pros::MotorGroup *Left_Drivetrain;
 
