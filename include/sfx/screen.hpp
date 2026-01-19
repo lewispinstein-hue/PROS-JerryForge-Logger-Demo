@@ -76,7 +76,7 @@ public:
    * @return The @ref ButtonId of the tapped button, or @c ButtonId::NONE if
    * timed out.
    */
-  ButtonId waitForBottomButtonTap(uint32_t timeout = UINT32_MAX);
+  ButtonId waitForBottomButtonTap(uint32_t timeout = TIMEOUT_MAX);
 
   /**
    * @brief Blocks execution until a screen touch event occurs.
@@ -90,7 +90,7 @@ public:
    * if (waitForScreenTouch(2000)) startAuton();
    * @endcode
    */
-  bool waitForScreenTouch(uint32_t timeoutMs = UINT32_MAX,
+  bool waitForScreenTouch(uint32_t timeoutMs = TIMEOUT_MAX,
                           bool detectTouchOnly = false);
 
   /**
@@ -142,15 +142,32 @@ public:
       formatted = std::string(name) + ": " + formatted;
     }
 
-    // Automatic text wrapping (naive, by character count)
+    // Automatic text wrapping (naive).
     size_t maxCharsPerLine = SCREEN_WIDTH / CHAR_WIDTH;
     size_t start = 0;
-    while (start < formatted.size()) {
-      std::string line = formatted.substr(start, maxCharsPerLine);
-      textLines.push_back(line);
-      start += maxCharsPerLine;
-    }
 
+    while (start < formatted.size()) {
+      size_t len = std::min(maxCharsPerLine, formatted.size() - start);
+
+      // 2. If the remainder fits entirely, just print it and finish
+      if (start + len >= formatted.size()) {
+        textLines.push_back(formatted.substr(start));
+        break;
+      }
+      // Otherwise, look for the LAST space within this allowed range
+      size_t splitPos = formatted.rfind(' ', start + len);
+
+      // Check if we found a valid space to split on
+      if (splitPos != std::string::npos && splitPos > start) {
+        // Cut at the space
+        textLines.push_back(formatted.substr(start, splitPos - start));
+        start = splitPos + 1; // +1 skips the actual space character
+      } else {
+        // No space found (it's a massive word), so we MUST force a hard cut
+        textLines.push_back(formatted.substr(start, len));
+        start += len;
+      }
+    }
     // Clamp the number of lines
     while (textLines.size() > MAX_ROWS) {
       textLines.erase(textLines.begin());
@@ -165,7 +182,7 @@ public:
   }
 
   template <typename... Args>
-  void printToScreen(const char *format, Args&&...args) {
+  void printToScreen(const char *format, Args&&... args) {
     // Convenience wrapper: forwards to full overload
     printToScreen(false, "", format, std::forward<Args>(args)...);
   }
