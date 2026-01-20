@@ -1,7 +1,4 @@
-#include <chrono>
-#include <thread>
 #define LOG_SOURCE nullptr
-
 #include "sfx/logger.hpp"
 
 namespace sfx {
@@ -75,7 +72,7 @@ void setOutputForJerryio(bool v) {
 
 void setWaitForStdIn(bool v) {
   if (Config.logToSD.load() && !Config.logToTerminal.load()) {
-    LOG_WARN("Value is not settable; LogToSD is enabled.");
+    LOG_WARN("waitForStdIn value is not settable; LogToSD is enabled.");
     return;
   }
 
@@ -89,7 +86,7 @@ void setWaitForStdIn(bool v) {
 }
 
 void registerMotor(std::string name, pros::MotorGroup *motor) {
-  MutexGuard m(generalMutex, TIMEOUT_MAX);
+  MutexGuard m(generalMutex);
   // Add the new motor to our internal list
   if (motor != nullptr)
     internalMotorsToScan.push_back({name, motor});
@@ -274,7 +271,7 @@ bool initSDLogger() {
   char filename[64];
   makeTimestampedFilename(filename, sizeof(filename));
 
-  sdFile = fopen(filename, "a");
+  sdFile = fopen(filename, "w");
   if (!sdFile) {
     printf("[DEBUG]: File could not be opened. Aborting.\n");
     return false;
@@ -359,9 +356,7 @@ void startLogger() {
 
   // Calculate divide factor to normalize return velocity to ±127
   // Static initialization ensures this only runs once
-  static const pros::MotorGears drivetrain_gearset =
-      pLeftDrivetrain->get_gearing();
-
+  static pros::MotorGears drivetrain_gearset = pLeftDrivetrain->get_gearing();
   static double divide_factor_drivetrainRPM = 1;
   switch (drivetrain_gearset) {
   case pros::MotorGears::rpm_100:
@@ -377,6 +372,16 @@ void startLogger() {
     divide_factor_drivetrainRPM = 600.0; // safest fallback
   }
 
+  // Lambda helper to cap the output at ±127
+  auto norm = [&](double rpm) {
+    double v = (rpm / divide_factor_drivetrainRPM) * 127.0;
+    if (v > 127)
+      v = 127;
+    if (v < -127)
+      v = -127;
+    return v;
+  };
+
   pros::Task logger(
       [&]() {
         char startChar;
@@ -390,7 +395,6 @@ void startLogger() {
           // Clear any "junk" currently in the buffer before we start waiting
           // This ensures an old 'Y' from a previous run doesn't trigger this
           // immediately.
-          // while (getchar() != EOF);
 
           while ((pros::millis() - startTime) < waitForStdInTimeout) {
             int c = getchar(); // Get one character from the serial buffer
@@ -429,6 +433,7 @@ void startLogger() {
         } else if (!checkRobotConfig(false)) {
           LOG_FATAL("At least one pointer set by setRobot(RobotRef "
                     "ref) is nullptr. Aborting!\n");
+          return;
         } else
           LOG_INFO("All pointers set by setRobot(RobotRef ref) seem "
                    "to be valid.");
@@ -442,17 +447,16 @@ void startLogger() {
               LOG_FATAL("Enable LemLib logging or disable outputForJerryio");
               return;
             }
-            LOG_INFO("[CSV_HEADER],X,Y,Theta,L_Vel,R_Vel\n");
+
             // THIS IS FOR LOGGING TO .log. We use a special format for this
             while (true) {
-              float normalizedTheta = pChassis->getPose().theta;
-              normalizedTheta = fmod(normalizedTheta, 360.0);
-              LOG_INFO("[DATA],%.2f,%.2f,%.2f,%.3f,%.3f", pChassis->getPose().x,
+              float normalizedTheta = fmod(pChassis->getPose().theta, 360.0);
+
+              LOG_INFO("[DATA],%.2f,%.2f,%.2f,%.1f,%.1f", pChassis->getPose().x,
                        pChassis->getPose().y, normalizedTheta,
-                       (pLeftDrivetrain->get_actual_velocity() /
-                        divide_factor_drivetrainRPM),
-                       pRightDrivetrain->get_actual_velocity() /
-                           divide_factor_drivetrainRPM);
+                       norm(pLeftDrivetrain->get_actual_velocity()),
+                       norm(pRightDrivetrain->get_actual_velocity()));
+
               // RUNTIME CHECK: Delay
               if (Config.logToTerminal.load()) {
                 pros::delay(120); // main loop delay for bandwidth safety
@@ -463,21 +467,19 @@ void startLogger() {
           }
 
           // Creation of reference times for spaced checks
-          uint32_t lastThermalCheck = pros::millis();
-          uint32_t lastBatteryCheck = pros::millis();
-          uint32_t lastTasksPrint = pros::millis();
-          uint32_t lastAutoSave = pros::millis();
+          uint32_t lastThermalCheck, 
+                   lastBatteryCheck, 
+                   lastTasksPrint,
+                   lastAutoSave = pros::millis();
 
           while (true) {
             if (Config.printLemlibPose.load()) {
               LOG_INFO(
-                  "Pose X: %.2f Y: %.2f Theta: %.2f | LVel: %.0f RVel: %.0f",
+                  "Pose X: %.2f Y: %.2f Theta: %.2f | LVel: %.1f RVel: %.1f",
                   pChassis->getPose().x, pChassis->getPose().y,
                   pChassis->getPose().theta,
-                  (pLeftDrivetrain->get_actual_velocity() /
-                   divide_factor_drivetrainRPM * 100),
-                  pRightDrivetrain->get_actual_velocity() /
-                      divide_factor_drivetrainRPM * 100);
+                  norm(pLeftDrivetrain->get_actual_velocity()),
+                  norm(pRightDrivetrain->get_actual_velocity()));
             }
 
             uint32_t now = pros::millis();

@@ -12,7 +12,7 @@
  *
  * @note Even if you are outputting logs into an SD card, it is recommended to
  * open the terminal on first setup to watch for errors.
- * * @note To use the logger effectively, set up a shell function that automates
+ * @note To use the logger effectively, set up a shell function that automates
  * connecting to the robot and starting the logging task. Add the proslog()
  * function to your
  * ~/.zshrc file (see example below).
@@ -30,17 +30,17 @@
  * if pros lsusb | grep -q "usbmodem"; then
  * mkdir -p Logs
  * local logfile="Logs/$(date +%Y-%m-%d_%H-%M-%S).log"
- * * echo -e "\033[0;32m[INFO]:\033[0m Robot Connected!"
+ * echo -e "\033[0;32m[INFO]:\033[0m Robot Connected!"
  * echo -e "\033[0;32m[INFO]:\033[0m Sending handshake 'Y'..."
  * echo -e "\033[0;32m[INFO]:\033[0m Logging clean data to $logfile"
  * echo -e "\033[0;32m[INFO]:\033[0m Press Ctrl+C to stop."
- * * # 1. { echo "Y"; cat -u; } -> Sends "Y", then keeps the pipe open for your
+ * # 1. { echo "Y"; cat -u; } -> Sends "Y", then keeps the pipe open for your
  * keyboard. # 2. | script ... -> Feeds that "Y" into the PROS terminal as if
  * you typed it. # 3. | tee ... -> Splits the output to Screen and File
  * Cleaners.
- * * { echo "Y"; cat -u; } | script -q /dev/null pros terminal | tee >(perl -pe
+ * { echo "Y"; cat -u; } | script -q /dev/null pros terminal | tee >(perl -pe
  * 'BEGIN{$|=1} s/\x1b\[[0-9;]*[mGK]//g' > "$logfile")
- * * else
+ * else
  * echo -e "\033[0;31m[ERROR]:\033[0m No V5 device detected."
  * fi
  * }
@@ -107,7 +107,7 @@ constexpr const char *resolveLogSource(const char *filepath) {
 /**
  * @struct MutexGuard
  * @brief RAII wrapper for handling PROS mutexes.
- * * @note Automatically takes the mutex upon construction and gives it upon
+ * @note Automatically takes the mutex upon construction and gives it upon
  * destruction to ensure thread safety even if exceptions occur.
  */
 struct MutexGuard {
@@ -372,8 +372,6 @@ void printBatteryInfo();
  * void initialize() {
  * Logger::RobotRef config;
  * config.chassis = &chassis;
- * config.lateralSettings = &lateralSettings;
- * config.angularSettings = &angularSettings;
  * config.Left_Drivetrain = &left_motors;
  * config.Right_Drivetrain = &right_motors;
  * Logger::setRobot(config);
@@ -403,7 +401,7 @@ struct RobotRef {
  * @return true if successful, false if failed (nullptr detected or called
  * twice).
  */
-extern bool setRobot(RobotRef Config);
+extern bool setRobot(RobotRef ref);
 
 /**
  * @brief Initializes and starts the background logging task.
