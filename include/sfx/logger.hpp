@@ -49,12 +49,7 @@
  */
 
 #include "lemlib/chassis/chassis.hpp" // For lemlib::ControllerSettings
-#include "pros/abstract_motor.hpp"    // For MotorGroup
-#include "sfx/motorChecks.hpp"        // For overheating checks
 #include <atomic>
-#include <cstdarg>
-#include <cstring>
-
 
 namespace sfx {
 namespace Logger {
@@ -93,8 +88,8 @@ constexpr const char *resolveLogSource(const char *filepath) {
   std::string_view path(filepath);
 
   // Whitelist: Allowed System Files
-  if (ends_with(path, "logger.hpp"))
-    return "logger.hpp";
+  if (ends_with(path, "logger.cpp"))
+    return "logger.cpp";
   if (ends_with(path, "infoSink.cpp"))
     return "infoSink.cpp";
 
@@ -110,12 +105,27 @@ constexpr const char *resolveLogSource(const char *filepath) {
  * @note Automatically takes the mutex upon construction and gives it upon
  * destruction to ensure thread safety even if exceptions occur.
  */
+
 struct MutexGuard {
   pros::Mutex &m;
-  explicit MutexGuard(pros::Mutex &m, uint32_t timeout = 10) : m(m) {
-    m.take(timeout);
+  bool locked = false;
+
+  explicit inline MutexGuard(pros::Mutex &m) : m(m) { locked = m.take(); }
+
+  explicit inline MutexGuard(pros::Mutex &m, uint32_t timeout) : m(m) {
+    locked = m.take(timeout);
   }
-  ~MutexGuard() { m.give(); }
+
+  ~MutexGuard() {
+    if (locked) {
+      m.give();
+    }
+  }
+
+  bool isLocked() const { return locked; }
+
+  MutexGuard(const MutexGuard &) = delete;
+  MutexGuard &operator=(const MutexGuard &) = delete;
 };
 
 /**
@@ -222,10 +232,7 @@ void log_message(LogLevel level, const char *file, const char *fmt, ...);
  * setLoggerMinLevel(LOG_LEVEL_ERROR);
  * @endcode
  */
-inline void setLoggerMinLevel(LogLevel level) {
-  minLogLevel = level;
-  LOG_DEBUG("SetLoggerMinLevel set to: %d", level);
-}
+void setLoggerMinLevel(LogLevel level);
 
 // --------------------------------------------------------------------------
 // Configuration Constants
@@ -331,7 +338,7 @@ extern bool waitForSTDin;
  * @brief Checks if the logger task has been started.
  * @return true if logger has started, false otherwise.
  */
-extern bool loggerStatus();
+extern uint32_t loggerStatus();
 
 // --------------------------------------------------------------------------
 // Battery Thresholds
@@ -382,12 +389,12 @@ void printBatteryInfo();
 struct RobotRef {
   /** @brief Pointer to LemLib chassis for pose data (X, Y, Theta). Must be
    * valid and global. */
-  lemlib::Chassis *chassis;
+   lemlib::Chassis *chassis;
+   
+   /** @brief Pointer to left drivetrain motor group for logging. */
+   pros::MotorGroup *Left_Drivetrain;
 
-  /** @brief Pointer to left drivetrain motor group for velocity logging. */
-  pros::MotorGroup *Left_Drivetrain;
-
-  /** @brief Pointer to right drivetrain motor group for velocity logging. */
+  /** @brief Pointer to right drivetrain motor group for logging. */
   pros::MotorGroup *Right_Drivetrain;
 };
 
@@ -422,22 +429,11 @@ extern bool setRobot(RobotRef ref);
  */
 void startLogger();
 
+void pauseLogger();
+void unpauseLogger();
 // --------------------------------------------------------------------------
 // Motor Monitoring
 // --------------------------------------------------------------------------
-
-/**
- * @struct MotorMonitor
- * @brief Structure representing a motor group to be monitored for thermal
- * status.
- */
-struct MotorMonitor {
-  /** @brief Human-readable name identifying the motor group (e.g. "Intake"). */
-  std::string name;
-
-  /** @brief Pointer to the motor group to monitor. Must remain valid. */
-  pros::MotorGroup *group;
-};
 
 /**
  * @brief Registers a motor group to be monitored for thermal status.

@@ -8,7 +8,10 @@ namespace sfx {
 namespace screen {
 
 void Manager::clearScreen() {
-  unique_lock m(sharedMutex);
+  // Thread safety
+  MutexGuard m(sharedMutex);
+  if (!m.isLocked()) return; 
+  
   textLines.clear();
   pros::screen::erase_rect(0, 0, 480, 272);
   pros::screen::erase();
@@ -16,7 +19,9 @@ void Manager::clearScreen() {
 
 void Manager::drawCapsule(int x, int y, int width, int height,
                           uint32_t fillColor, uint32_t borderColor) {
-  unique_lock m(sharedMutex); // Lock
+  // Thread safety
+  MutexGuard m(sharedMutex);
+  if (!m.isLocked()) return;
 
   int radius = height / 2;
 
@@ -52,9 +57,11 @@ void Manager::drawCapsule(int x, int y, int width, int height,
 }
 
 void Manager::drawBottomButtons(bool redraw) {
-  unique_lock m(sharedMutex);
-  if (redraw)
-    clearScreen();
+  // Thread safety
+  MutexGuard m(sharedMutex);
+  if (!m.isLocked()) return;
+  
+  if (redraw) clearScreen();
 
   auto color = pros::screen::get_pen();
 

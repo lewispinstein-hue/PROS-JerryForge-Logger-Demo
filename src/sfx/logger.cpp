@@ -1,3 +1,7 @@
+#include "sfx/motorChecks.hpp"
+#include <cstdarg>
+#include <cstring>
+
 #define LOG_SOURCE nullptr
 #include "sfx/logger.hpp"
 
@@ -18,9 +22,16 @@ pros::Mutex logToSdMutex;
 pros::Mutex loggerMutex;
 pros::Mutex generalMutex;
 
-static lemlib::Chassis *pChassis = nullptr;
-static pros::MotorGroup *pLeftDrivetrain = nullptr;
-static pros::MotorGroup *pRightDrivetrain = nullptr;
+static std::shared_ptr<lemlib::Chassis> pChassis = nullptr;
+static std::shared_ptr<pros::MotorGroup> pLeftDrivetrain = nullptr;
+static std::shared_ptr<pros::MotorGroup> pRightDrivetrain = nullptr;
+
+static std::unique_ptr<pros::Task> logger;
+
+struct MotorMonitor {
+  std::string name;
+  std::shared_ptr<pros::MotorGroup> group = nullptr;
+};
 
 static std::vector<MotorMonitor>
     internalMotorsToScan; // Holds motors to watchdog scan
@@ -85,17 +96,31 @@ void setWaitForStdIn(bool v) {
   waitForSTDin = v;
 }
 
+void setLoggerMinLevel(LogLevel level) {
+  minLogLevel = level;
+  LOG_DEBUG("SetLoggerMinLevel set to: %d", level);
+}
+
 void registerMotor(std::string name, pros::MotorGroup *motor) {
+  // Thread safety
   MutexGuard m(generalMutex);
+  if (!m.isLocked())
+    return;
+
   // Add the new motor to our internal list
-  if (motor != nullptr)
-    internalMotorsToScan.push_back({name, motor});
-  else
-    LOG_WARN("registerMotor called with nullptr arguments!");
+  try {
+    if (motor != nullptr) {
+      std::shared_ptr<pros::MotorGroup> newMotor =
+          std::shared_ptr<pros::MotorGroup>(motor);
+      internalMotorsToScan.push_back({name, newMotor});
+    } else
+      LOG_WARN("registerMotor called with nullptr arguments!");
+  } catch (std::exception &e) {
+    LOG_ERROR("Exception adding motor to thermal watchdog: %s", e.what());
+  }
 }
 
 const char *levelToString(LogLevel level) {
-  MutexGuard m(generalMutex);
   switch (level) {
   case LogLevel::LOG_LEVEL_DEBUG:
     return "DEBUG";
@@ -116,7 +141,10 @@ void log_message(LogLevel level, const char *source, const char *fmt, ...) {
   if (level < minLogLevel)
     return;
 
-  MutexGuard lock(loggerMutex);
+  // Thread safety
+  MutexGuard m(loggerMutex);
+  if (!m.isLocked())
+    return;
 
   char buffer[512];
   va_list args;
@@ -171,30 +199,34 @@ void log_message(LogLevel level, const char *source, const char *fmt, ...) {
 bool setRobot(RobotRef ref) {
   static bool isConfigSet = false;
   if (isConfigSet) {
-    // Uses log_message internally, which now checks Config.logToTerminal/SD
     LOG_WARN("setRobot(RobotRef ref) called twice!\n");
     return false;
   }
   isConfigSet = true;
 
-  if (ref.chassis == nullptr || ref.Left_Drivetrain == nullptr ||
-      ref.Right_Drivetrain == nullptr) {
-
+  if (!ref.chassis || !ref.Left_Drivetrain || !ref.Right_Drivetrain) {
     LOG_FATAL("setRobot(RobotRef ref) called with nullptr arguments!\n");
-    return false; // Stop here, don't link variables
+    return false;
   }
 
-  // Store the Memory addresses of the objects passed in
-  pChassis = ref.chassis;
-  pLeftDrivetrain = ref.Left_Drivetrain;
-  pRightDrivetrain = ref.Right_Drivetrain;
+  try {
+    // Take ownership via shared_ptr
+    pChassis = std::shared_ptr<lemlib::Chassis>(ref.chassis);
+    pLeftDrivetrain = std::shared_ptr<pros::MotorGroup>(ref.Left_Drivetrain);
+    pRightDrivetrain = std::shared_ptr<pros::MotorGroup>(ref.Right_Drivetrain);
+  } catch (const std::exception &e) {
+    LOG_FATAL("Failed to allocate memory for robot objects: %s\n", e.what());
+    return false;
+  }
 
   LOG_INFO("setRobot(RobotRef ref) successfully set variables!");
   return true;
 }
 
 bool checkRobotConfig(bool checkLemLib = true) {
-  MutexGuard m(generalMutex);
+  // Thread safety
+  MutexGuard m(generalMutex, TIMEOUT_MAX);
+
   bool allValid = true;
 
   if (pChassis == nullptr && checkLemLib) {
@@ -216,7 +248,11 @@ bool checkRobotConfig(bool checkLemLib = true) {
 extern "C" void vTaskList(char *pcWriteBuffer);
 
 void printRunningTasks() {
+  // Thread safety
   MutexGuard m(generalMutex);
+  if (!m.isLocked())
+    return;
+
   char buffer[1024];
   vTaskList(buffer);
 
@@ -227,8 +263,10 @@ void printRunningTasks() {
   LOG_INFO("-------------------------------------------------------\n");
 }
 
-static void makeTimestampedFilename(char *out, size_t len) {
-  MutexGuard m(generalMutex);
+static void makeTimestampedFilename(size_t len) {
+  // Thread safety
+  MutexGuard m(generalMutex, TIMEOUT_MAX);
+
   time_t now = time(0);
   struct tm *tstruct = localtime(&now);
 
@@ -244,9 +282,37 @@ static void makeTimestampedFilename(char *out, size_t len) {
   }
 }
 
+void pauseLogger() {
+  uint32_t status = loggerStatus();
+  if (status != pros::E_TASK_STATE_DELETED &&
+      status != pros::E_TASK_STATE_INVALID &&
+      status != pros::E_TASK_STATE_SUSPENDED &&
+      status != pros::E_TASK_STATE_BLOCKED) {
+    logger->suspend();
+  } else
+    LOG_INFO("Logger cannot be paused as it is not in a running state.");
+}
+
+void unpauseLogger() {
+  uint32_t status = loggerStatus();
+  if (status != pros::E_TASK_STATE_DELETED &&
+      status != pros::E_TASK_STATE_INVALID &&
+      status == pros::E_TASK_STATE_SUSPENDED &&
+      status != pros::E_TASK_STATE_BLOCKED) {
+    logger->resume();
+  } else
+    LOG_INFO("Logger cannot be unpaused as it is not paused.");
+}
+
+uint32_t loggerStatus() { return logger->get_state(); }
+
 // Public
 bool initSDLogger() {
+  // Thread safety
   MutexGuard m(generalMutex);
+  if (!m.isLocked())
+    return false;
+
   if (pros::usd::is_installed()) {
     printf("[DEBUG]: SD Card installed\n");
     pros::delay(500);
@@ -268,10 +334,9 @@ bool initSDLogger() {
     return false;
   }
 
-  char filename[64];
-  makeTimestampedFilename(filename, sizeof(filename));
+  makeTimestampedFilename(sizeof(currentFilename));
 
-  sdFile = fopen(filename, "w");
+  sdFile = fopen(currentFilename, "w");
   if (!sdFile) {
     printf("[DEBUG]: File could not be opened. Aborting.\n");
     return false;
@@ -287,10 +352,13 @@ void logToSD(const char *levelStr, const char *fmt, ...) {
   if (!sdFile) {
     printf(
         "[ERROR]: Writing to SD card failed!. FILE * is null. Message lost!\n");
-    printf("Message error was: %s\n", levelStr);
+    printf("Message error level was: %s\n", levelStr);
     return;
   }
+  // Thread safety
   MutexGuard m(logToSdMutex);
+  if (!m.isLocked())
+    return;
 
   // 1. Write to RAM buffer
   fprintf(sdFile, "[%.2f] [%s]: ", pros::millis() / 1000.0, levelStr);
@@ -313,7 +381,11 @@ void logToSD(const char *levelStr, const char *fmt, ...) {
 }
 
 void printBatteryInfo() {
+  // Thread safety
   MutexGuard m(generalMutex);
+  if (!m.isLocked())
+    return;
+
   double capacity = pros::battery::get_capacity();
   double voltage = pros::battery::get_voltage();
 
@@ -328,8 +400,6 @@ void printBatteryInfo() {
              (voltage / 1000.0));
   }
 }
-
-bool loggerStatus() { return loggerStarted; }
 
 void startLogger() {
   static bool hasLoggerStarted = false;
@@ -369,7 +439,7 @@ void startLogger() {
     divide_factor_drivetrainRPM = 600.0;
     break;
   default:
-    divide_factor_drivetrainRPM = 600.0; // safest fallback
+    divide_factor_drivetrainRPM = 300.0; // safest fallback
   }
 
   // Lambda helper to cap the output at ±127
@@ -391,10 +461,6 @@ void startLogger() {
           LOG_INFO("Waiting for handshake (Y) with timeout...\n");
 
           uint32_t startTime = pros::millis();
-
-          // Clear any "junk" currently in the buffer before we start waiting
-          // This ensures an old 'Y' from a previous run doesn't trigger this
-          // immediately.
 
           while ((pros::millis() - startTime) < waitForStdInTimeout) {
             int c = getchar(); // Get one character from the serial buffer
@@ -424,7 +490,7 @@ void startLogger() {
             LOG_FATAL("At least one pointer set by setRobot(RobotRef "
                       "ref) is nullptr. Aborting!\n");
             LOG_INFO("You can disable LemLib logging to allow logger to run "
-                     "without setting up the config.");
+                     "without setting up its config.");
             return;
           } else {
             LOG_INFO("All pointers set by setRobot(RobotRef ref) seem "
@@ -467,10 +533,8 @@ void startLogger() {
           }
 
           // Creation of reference times for spaced checks
-          uint32_t lastThermalCheck, 
-                   lastBatteryCheck, 
-                   lastTasksPrint,
-                   lastAutoSave = pros::millis();
+          uint32_t lastThermalCheck, lastBatteryCheck, lastTasksPrint,
+              lastAutoSave = pros::millis();
 
           while (true) {
             if (Config.printLemlibPose.load()) {

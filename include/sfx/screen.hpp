@@ -54,13 +54,25 @@ public:
    * @details Automatically takes the mutex on construction and gives it on
    * destruction.
    */
-  struct unique_lock {
+  struct MutexGuard {
     pros::Mutex &m;
-    explicit unique_lock(pros::Mutex &m) : m(m) { m.take(); }
-    explicit unique_lock(pros::Mutex &m, uint32_t timeout) : m(m) {
-      m.take(timeout);
+    bool locked = false;
+
+    explicit inline MutexGuard(pros::Mutex &m) : m(m) { locked = m.take(); }
+
+    explicit inline MutexGuard(pros::Mutex &m, uint32_t timeout) : m(m) {
+      locked = m.take(timeout);
     }
-    ~unique_lock() { m.give(); }
+
+    ~MutexGuard() {
+      if (locked) {
+        m.give();
+      }
+    }
+
+    bool isLocked() const { return locked; }
+    MutexGuard(const MutexGuard &) = delete;
+    MutexGuard &operator=(const MutexGuard &) = delete;
   };
 
   /**
@@ -125,7 +137,9 @@ public:
   template <typename... Args>
   void printToScreen(bool clear, const char *name, const char *format,
                      Args &&...args) {
-    unique_lock m(sharedMutex);
+    // Thread safety
+    MutexGuard m(sharedMutex);
+    if (!m.isLocked()) return;
 
     // Clear screen area if requested
     if (clear) {
@@ -182,7 +196,7 @@ public:
   }
 
   template <typename... Args>
-  void printToScreen(const char *format, Args&&... args) {
+  void printToScreen(const char *format, Args &&...args) {
     // Convenience wrapper: forwards to full overload
     printToScreen(false, "", format, std::forward<Args>(args)...);
   }
