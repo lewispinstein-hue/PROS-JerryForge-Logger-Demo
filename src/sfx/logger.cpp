@@ -1,3 +1,4 @@
+#include "pros/rtos.hpp"
 #define LOG_SOURCE nullptr
 #include "sfx/logger.hpp"
 #include "sfx/motorChecks.hpp"
@@ -52,22 +53,27 @@ void Logger::setRunThermalWatchdog(bool v) {
   config_.runThermalWatchdog.store(v);
   LOG_DEBUG("setRunThermalWatchdog set to: %d", v);
 }
+
 void Logger::setPrintLemlibPose(bool v) {
   config_.printLemlibPose.store(v);
   LOG_DEBUG("setPrintLemlibPose set to: %d", v);
 }
+
 void Logger::setPrintBatteryData(bool v) {
   config_.printBatteryData.store(v);
   LOG_DEBUG("setPrintBatteryData set to: %d", v);
 }
+
 void Logger::setOnlyPrintOverheatedMotors(bool v) {
   config_.onlyPrintOverheatedMotors.store(v);
   LOG_DEBUG("onlyPrintOverheatedMotors set to: %d", v);
 }
+
 void Logger::setPrintWatchdogWarnings(bool v) {
   config_.printMotorWatchdogWarnings.store(v);
   LOG_DEBUG("printWatchdogWarnings set to: %d", v);
 }
+
 void Logger::setPrintProsTasks(bool v) {
   config_.printPROSTasks.store(v);
   LOG_DEBUG("printProsTasks set to: %d", v);
@@ -161,15 +167,15 @@ void Logger::registerMotor(std::string name, pros::MotorGroup *motor) {
 
 const char *Logger::levelToString_(LogLevel level) const {
   switch (level) {
-  case LogLevel::LOG_LEVEL_DEBUG:
+  case LogLevel::DEBUG:
     return "DEBUG";
-  case LogLevel::LOG_LEVEL_INFO:
+  case LogLevel::INFO:
     return "INFO";
-  case LogLevel::LOG_LEVEL_WARN:
+  case LogLevel::WARN:
     return "WARN";
-  case LogLevel::LOG_LEVEL_ERROR:
+  case LogLevel::ERROR:
     return "ERROR";
-  case LogLevel::LOG_LEVEL_FATAL:
+  case LogLevel::FATAL:
     return "FATAL";
   default:
     return "UNKNOWN";
@@ -199,19 +205,19 @@ void Logger::log_message(LogLevel level, const char *source, const char *fmt,
   if (config_.logToTerminal.load() && !config_.outputForJerryio.load()) {
     reset = "\033[0m";
     switch (level) {
-    case LogLevel::LOG_LEVEL_DEBUG:
+    case LogLevel::DEBUG:
       color = "\033[36m";
       break;
-    case LogLevel::LOG_LEVEL_INFO:
+    case LogLevel::INFO:
       color = "\033[32m";
       break;
-    case LogLevel::LOG_LEVEL_WARN:
+    case LogLevel::WARN:
       color = "\x1b[0;38;5;214m";
       break;
-    case LogLevel::LOG_LEVEL_ERROR:
+    case LogLevel::ERROR:
       color = "\033[31m";
       break;
-    case LogLevel::LOG_LEVEL_FATAL:
+    case LogLevel::FATAL:
       color = "\033[0;31;2m";
       break;
     default:
@@ -467,21 +473,104 @@ void Logger::start() {
       TASK_PRIORITY_DEFAULT, TASK_STACK_DEPTH_DEFAULT, "SFX Logger");
 }
 
-// --- Helper extractions (minimal; called by Update) ---
+void Logger::printWatches() {
+  uint32_t nowMs = pros::millis();
 
+  for (auto &[id, w] : watches_) {
+    // Gate evaluation frequency for ALL watches
+    if (w.lastPrintMs != 0 && (nowMs - w.lastPrintMs) < w.intervalMs) {
+      continue;
+    }
+    w.lastPrintMs = nowMs;
+
+    if (!w.eval)
+      continue;
+
+    auto [lvl, valueStr] = w.eval();
+
+    if (w.onChange) {
+      if (w.lastValue && *w.lastValue == valueStr) {
+        continue;
+      }
+      w.lastValue = valueStr;
+    }
+
+    switch (lvl) {
+    case LogLevel::DEBUG:
+      LOG_DEBUG("%s %s", w.label.c_str(), valueStr.c_str());
+      break;
+    case LogLevel::INFO:
+      LOG_INFO("%s %s", w.label.c_str(), valueStr.c_str());
+      break;
+    case LogLevel::WARN:
+      LOG_WARN("%s %s", w.label.c_str(), valueStr.c_str());
+      break;
+    case LogLevel::ERROR:
+      LOG_ERROR("%s %s", w.label.c_str(), valueStr.c_str());
+      break;
+    default:
+      LOG_INFO("%s %s", w.label.c_str(), valueStr.c_str());
+      break;
+    }
+  }
+}
+
+// --- Helper extractions (minimal; called by Update) ---
 void Logger::printLemlibPose_() {
   // This function is intentionally implemented inside Update() to preserve
   // exact norm() capture.
 }
 
-void Logger::printThermalWatchdog_(uint32_t /*now*/) {}
-void Logger::printBatteryWatchdog_(uint32_t /*now*/) {}
-void Logger::printProsTasks_(uint32_t /*now*/) {}
-void Logger::handleAutoSaveSd_() {}
+void Logger::printThermalWatchdog_() {
+  for (auto &entry : internalMotorsToScan_) {
+    auto status = motorChecks::checkMotorOverheat(*entry.group, 55.0);
+
+    if (status.overheated) {
+      std::string ports;
+      for (auto p : status.motorsOverheated)
+        ports += std::to_string(p) + ", ";
+      if (!ports.empty())
+        ports.pop_back();
+
+      if (status.maxTemp >= 65) {
+        LOG_ERROR("%s CRITICAL TEMP! Max: %.0fC | Ports: %s",
+                  entry.name.c_str(), status.maxTemp, ports.c_str());
+      } else {
+        LOG_WARN("%s Overheating! Max: %.0fC | Ports: %s", entry.name.c_str(),
+                 status.maxTemp, ports.c_str());
+      }
+    } else if (config_.printMotorWatchdogWarnings.load() &&
+               status.maxTemp >= 50.0) {
+      LOG_WARN("%s is warm/approaching throttle. (Max: %.0fC)",
+               entry.name.c_str(), status.maxTemp);
+    } else if (!config_.onlyPrintOverheatedMotors.load()) {
+      LOG_INFO("%s MotorGroup OK (Max: %.0fC)", entry.name.c_str(),
+               status.maxTemp);
+    }
+  }
+}
+
+void Logger::handleAutoSaveSd_() {
+  LOG_INFO("Attempting to close/open SD card...");
+  if (sdFile_ != nullptr) {
+    fflush(sdFile_);
+    fclose(sdFile_);
+    sdFile_ = fopen(currentFilename_, "a");
+    if (sdFile_ != nullptr) {
+      LOG_INFO("SD Card successfully reopened.");
+      fprintf(sdFile_, "[SYSTEM]: Auto-save successful.\n");
+    } else {
+      LOG_FATAL("SD Card could not be reopened; disabling SD card logging.");
+      config_.logToSD.store(false);
+    }
+    fflush(sdFile_);
+  } else {
+    LOG_ERROR("sdFile has become nullptr, disabling SD card logging.");
+  }
+  config_.logToSD.store(false);
+}
 
 void Logger::Update() {
-  // Recompute norm() exactly as in original startLogger (since it's local
-  // there).
   static pros::MotorGears drivetrain_gearset =
       pLeftDrivetrain_ ? pLeftDrivetrain_->get_gearing()
                        : pros::MotorGears::invalid;
@@ -599,32 +688,7 @@ void Logger::Update() {
 
       if (config_.runThermalWatchdog.load() &&
           (now - lastThermalCheck) >= thermalCheckInterval) {
-        for (auto &entry : internalMotorsToScan_) {
-          auto status = motorChecks::checkMotorOverheat(*entry.group, 55.0);
-
-          if (status.overheated) {
-            std::string ports;
-            for (auto p : status.motorsOverheated)
-              ports += std::to_string(p) + ", ";
-            if (!ports.empty())
-              ports.pop_back();
-
-            if (status.maxTemp >= 65) {
-              LOG_ERROR("%s CRITICAL TEMP! Max: %.0fC | Ports: %s",
-                        entry.name.c_str(), status.maxTemp, ports.c_str());
-            } else {
-              LOG_WARN("%s Overheating! Max: %.0fC | Ports: %s",
-                       entry.name.c_str(), status.maxTemp, ports.c_str());
-            }
-          } else if (config_.printMotorWatchdogWarnings.load() &&
-                     status.maxTemp >= 50.0) {
-            LOG_WARN("%s is warm/approaching throttle. (Max: %.0fC)",
-                     entry.name.c_str(), status.maxTemp);
-          } else if (!config_.onlyPrintOverheatedMotors.load()) {
-            LOG_INFO("%s MotorGroup OK (Max: %.0fC)", entry.name.c_str(),
-                     status.maxTemp);
-          }
-        }
+        printThermalWatchdog_();
         lastThermalCheck = now;
       }
 
@@ -642,26 +706,11 @@ void Logger::Update() {
 
       if (pros::millis() - lastAutoSave > AUTO_SAVE_INTERVAL &&
           config_.logToSD.load()) {
-        LOG_INFO("Attempting to close/open SD card...");
-        if (sdFile_ != nullptr) {
-          fflush(sdFile_);
-          fclose(sdFile_);
-          sdFile_ = fopen(currentFilename_, "a");
-          if (sdFile_ != nullptr) {
-            LOG_INFO("SD Card successfully reopened.");
-            fprintf(sdFile_, "[SYSTEM]: Auto-save successful.\n");
-          } else {
-            LOG_FATAL(
-                "SD Card could not be reopened; disabling SD card logging.");
-            config_.logToSD.store(false);
-          }
-          fflush(sdFile_);
-          lastAutoSave = pros::millis();
-        } else {
-          LOG_ERROR("sdFile has become nullptr, disabling SD card logging.");
-        }
-        config_.logToSD.store(false);
+        handleAutoSaveSd_();
+        lastAutoSave = pros::millis();
       }
+
+      printWatches();
 
       fflush(stdout);
 

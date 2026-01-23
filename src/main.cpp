@@ -3,8 +3,9 @@
 #include "lemlib/api.hpp"
 
 // Get access to Sfx's headers
-#include "lemlib/chassis/chassis.hpp"
+#include "pros/misc.h"
 #include "sfx/api.hpp"
+#include "sfx/logger.hpp"
 
 // Creating motors and controller
 pros::Controller controller(pros::E_CONTROLLER_MASTER);
@@ -83,40 +84,48 @@ lemlib::Chassis chassis(drivetrain, // drivetrain settings
 /*
  * 3. SFX (LIBRARY) SETUP
  * ----------------------
- * Initialize the screen manager and logger.
  */
 sfx::screen::Manager display;
 
 void initialize() {
   // --- Logger Setup ---
-  auto& logger = sfx::Logger::get_instance();
+  auto &logger = sfx::Logger::get_instance();
   // 1. Register motors you want to monitor
-  logger.registerMotor("Left Drive", nullptr);
+  logger.registerMotor("Left Drive", &left_mg);
   logger.registerMotor("Right Drive", &right_mg);
 
   // 2. Pass the chassis and controllers to the logger so it can record them
   logger.setRobot({
-    .chassis = nullptr,
+    .chassis = SHARED(chassis),
     .Left_Drivetrain = SHARED(left_mg),
     .Right_Drivetrain = SHARED(right_mg)
   });
 
   // 3. Configure Logging Behaviors
-  logger.setLogToTerminal(true);      // Print logs to the computer via USB
-  logger.setLogToSD(false);           // Save logs to the SD card (Recommended!)
-  logger.setPrintProsTasks(true);     // Log when PROS tasks start/stop
+  logger.setLogToTerminal(true);  // Print logs to the computer via USB
+  logger.setLogToSD(false);       // Save logs to the SD card (Recommended!)
+  logger.setPrintProsTasks(true); // Log when PROS tasks start/stop
   logger.setOnlyPrintOverheatedMotors(false); // If true, hides cool motors
-  logger.setPrintLemlibPose(false);
-  logger.setLoggerMinLevel(LogLevel::LOG_LEVEL_INFO); // Hide "Debug" messages
+  logger.setLoggerMinLevel(LogLevel::INFO); // Hide "Debug" messages
 
   // 4. Calibrate & Start
   chassis.calibrate(); // Calibrate IMU
-  logger.start(); // Start the background logging task
+  logger.start();      // Start the background logging task
 
   // Print startup success to the brain screen
   display.clearScreen();
   display.printToScreen("System Ready!");
   display.printToScreen("Battery: {:.1f}%", pros::battery::get_capacity());
+
+  logger.watch(
+      "Controller A pressed:", LogLevel::INFO, bool{true},
+      []() { 
+      return controller.get_digital(
+      pros::E_CONTROLLER_DIGITAL_A); },
+      sfx::LevelOverride<int32_t>{
+      .elevatedLevel = LogLevel::WARN,
+      .predicate = PREDICATE(v == true)},
+      "%.1f");
 }
 
 /**
@@ -173,12 +182,12 @@ void opcontrol() {
   // -- Example: Autonomous Selector --
   display.clearScreen();
   display.printToScreen("Select Mode: (Tap a button below)");
-  
+
   // Set button labels
   display.printToScreen("Left: Run a test movement");
   display.printToScreen("Middle: Run a test turn");
   display.printToScreen("Right: Check Motor Temps");
-  display.drawBottomButtons(false); 
+  display.drawBottomButtons(false);
 
   // Reset Pose for the demo
   chassis.setPose(0, 0, 0);
@@ -188,55 +197,59 @@ void opcontrol() {
 
   // Handle the button press
   switch (button_pushed) {
-    case ButtonId::LEFT:
-      // Demo: Move forward
-      display.printToScreen(true, "Running", "Move To Point");
-      chassis.moveToPoint(0, 10, 1000);
-      break;
+  case ButtonId::LEFT:
+    // Demo: Move forward
+    display.printToScreen(true, "Running", "Move To Point");
+    chassis.moveToPoint(0, 10, 1000);
+    break;
 
-    case ButtonId::MIDDLE:
-      // Demo: Turn
-      display.printToScreen(true, "Running", "Turn To Heading");
-      chassis.turnToHeading(180, 1000);
-      break;
+  case ButtonId::MIDDLE:
+    // Demo: Turn
+    display.printToScreen(true, "Running", "Turn To Heading");
+    chassis.turnToHeading(180, 1000);
+    break;
 
-    case ButtonId::RIGHT: {
-      // Demo: Check Temperatures using SFX
-      // 1. Get the overheat status
-      auto status = sfx::motorChecks::checkMotorOverheat(left_mg);
+  case ButtonId::RIGHT: {
+    // Demo: Check Temperatures using SFX
+    // 1. Get the overheat status
+    auto status = sfx::motorChecks::checkMotorOverheat(left_mg);
 
-      // 2. Format it into a nice string
-      std::string output = sfx::motorChecks::formatCheckTemp("Left Drive", status, false);
+    // 2. Format it into a nice string
+    std::string output =
+        sfx::motorChecks::formatCheckTemp("Left Drive", status, false);
 
-      // 3. Print to screen
-      display.printToScreen(true, "Results", "{}", output);
-      break;
-    }
-    default:
-      break;
+    // 3. Print to screen
+    display.printToScreen(true, "Results", "{}", output);
+    break;
   }
-  
+  default:
+    break;
+  }
+
   display.printToScreen("Touch the screen to continue...");
   // Simple holder to constantly re-check for screen touch to continue
-  while (!display.waitForScreenTouch(100)) pros::delay(10);
+  while (!display.waitForScreenTouch(100))
+    pros::delay(10);
 
   // -- Main Drive Loop --
   display.printToScreen(true, "Driver Control", "Active");
-  
+
   while (true) {
     LOG_INFO("AAA");
-      // Get joystick values
-      int leftY = controller.get_analog(pros::E_CONTROLLER_ANALOG_LEFT_Y);
-      int rightX = controller.get_analog(pros::E_CONTROLLER_ANALOG_RIGHT_X);
+    // Get joystick values
+    int leftY = controller.get_analog(pros::E_CONTROLLER_ANALOG_LEFT_Y);
+    int rightX = controller.get_analog(pros::E_CONTROLLER_ANALOG_RIGHT_X);
 
-      // Simple Deadband (prevents robot from creeping if joystick drifts)
-      if (abs(leftY) < 10) leftY = 0;
-      if (abs(rightX) < 10) rightX = 0;
+    // Simple Deadband (prevents robot from creeping if joystick drifts)
+    if (abs(leftY) < 10)
+      leftY = 0;
+    if (abs(rightX) < 10)
+      rightX = 0;
 
-      // Move the robot (Curvature Drive)
-      chassis.curvature(leftY, rightX);
+    // Move the robot (Curvature Drive)
+    chassis.curvature(leftY, rightX);
 
-      // Save resources
-      pros::delay(20);
+    // Save resources
+    pros::delay(20);
   }
 }

@@ -41,27 +41,29 @@ namespace sfx {
  */
 #define LOG_DEBUG(fmt, ...)                                                    \
   sfx::Logger::get_instance().log_message(                                     \
-      sfx::LogLevel::LOG_LEVEL_DEBUG, _SFX_CURRENT_SOURCE, fmt, ##__VA_ARGS__)
+      sfx::LogLevel::DEBUG, _SFX_CURRENT_SOURCE, fmt, ##__VA_ARGS__)
 
 #define LOG_INFO(fmt, ...)                                                     \
   sfx::Logger::get_instance().log_message(                                     \
-      sfx::LogLevel::LOG_LEVEL_INFO, _SFX_CURRENT_SOURCE, fmt, ##__VA_ARGS__)
+      sfx::LogLevel::INFO, _SFX_CURRENT_SOURCE, fmt, ##__VA_ARGS__)
 
 #define LOG_WARN(fmt, ...)                                                     \
   sfx::Logger::get_instance().log_message(                                     \
-      sfx::LogLevel::LOG_LEVEL_WARN, _SFX_CURRENT_SOURCE, fmt, ##__VA_ARGS__)
+      sfx::LogLevel::WARN, _SFX_CURRENT_SOURCE, fmt, ##__VA_ARGS__)
 
 #define LOG_ERROR(fmt, ...)                                                    \
   sfx::Logger::get_instance().log_message(                                     \
-      sfx::LogLevel::LOG_LEVEL_ERROR, _SFX_CURRENT_SOURCE, fmt, ##__VA_ARGS__)
+      sfx::LogLevel::ERROR, _SFX_CURRENT_SOURCE, fmt, ##__VA_ARGS__)
 
 #define LOG_FATAL(fmt, ...)                                                    \
   sfx::Logger::get_instance().log_message(                                     \
-      sfx::LogLevel::LOG_LEVEL_FATAL, _SFX_CURRENT_SOURCE, fmt, ##__VA_ARGS__)
+      sfx::LogLevel::FATAL, _SFX_CURRENT_SOURCE, fmt, ##__VA_ARGS__)
 /** @} */
 
 #define SHARED(obj)                                                            \
   std::shared_ptr<std::remove_reference_t<decltype(obj)>>(&obj, [](void *) {})
+
+#define PREDICATE(func) sfx::as_predicate<int>([](int v) { return func; })
 
 /**
  * @struct MutexGuard
@@ -87,18 +89,10 @@ struct MutexGuard {
   MutexGuard &operator=(const MutexGuard &) = delete;
 };
 
-/**
- * @enum LogLevel
+/** * @enum LogLevel
  * @brief Enumeration of log levels for filtering log output.
  */
-enum LogLevel {
-  LOG_LEVEL_NONE = 0,
-  LOG_LEVEL_DEBUG,
-  LOG_LEVEL_INFO,
-  LOG_LEVEL_WARN,
-  LOG_LEVEL_ERROR,
-  LOG_LEVEL_FATAL
-};
+enum LogLevel { NONE = 0, DEBUG, INFO, WARN, ERROR, FATAL };
 
 // --------------------------------------------------------------------------
 // Configuration Constants (unchanged)
@@ -113,6 +107,21 @@ constexpr uint32_t AUTO_SAVE_INTERVAL = 30000;
 
 const double LOW_BATTERY_THRESHOLD = 30.0;
 const double CRITICAL_VOLTAGE_THRESHOLD = 11000;
+
+// ---------- Generic variable watches ----------
+using WatchId = uint64_t;
+
+template <class T> struct LevelOverride {
+  using value_type = T;
+  LogLevel elevatedLevel = LogLevel::WARN;
+  std::function<bool(const T &)> predicate;
+};
+
+// Helper: turn any predicate callable into std::function<bool(const T&)>
+template <class T, class Pred>
+std::function<bool(const T &)> as_predicate(Pred &&p) {
+  return std::function<bool(const T &)>(std::forward<Pred>(p));
+}
 
 /**
  * @class Logger
@@ -192,18 +201,47 @@ public:
   // Battery
   void printBatteryInfo();
 
+  // Normal
+  template <class Getter>
+  WatchId
+  watch(std::string label, LogLevel baseLevel, uint32_t intervalMs,
+        Getter &&getter,
+        auto ov = LevelOverride<std::decay_t<std::invoke_result_t<Getter &>>>{},
+        std::string fmt = {}) {
+    using T = std::decay_t<std::invoke_result_t<Getter &>>;
+
+    return addWatch<T>(std::move(label), baseLevel, intervalMs,
+                       std::forward<Getter>(getter), std::move(ov),
+                       std::move(fmt));
+  }
+  // Overload with onChange
+  // onChange version (no intervalMs)
+  template <class Getter>
+  WatchId
+  watch(std::string label, LogLevel baseLevel, bool onChange, Getter &&getter,
+        auto ov = LevelOverride<std::decay_t<std::invoke_result_t<Getter &>>>{},
+        std::string fmt = {}) {
+
+    using T = std::decay_t<std::invoke_result_t<Getter &>>;
+
+    return addWatch<T>(std::move(label), baseLevel,
+                       /*intervalMs=*/0, // ignored when onChange=true
+                       std::forward<Getter>(getter), std::move(ov),
+                       std::move(fmt), onChange);
+  }
+
 private:
   Logger() = default;
   Logger(const Logger &) = delete;
   Logger &operator=(const Logger &) = delete;
 
-  // Internal helpers (names per your convention)
+  // Internal helpers
   void Update();
 
   void printLemlibPose_();
-  void printThermalWatchdog_(uint32_t now);
-  void printBatteryWatchdog_(uint32_t now);
-  void printProsTasks_(uint32_t now);
+  void printThermalWatchdog_();
+  void printBatteryWatchdog_();
+  void printProsTasks_();
   void handleAutoSaveSd_();
   void printRunningTasks_();
 
@@ -215,15 +253,99 @@ private:
 
   void copyConfigFrom_(const loggerConfig &cfg);
 
+  struct Watch {
+    WatchId id{};
+    std::string label;
+    LogLevel baseLevel{LogLevel::INFO};
+    uint32_t intervalMs{1000};
+    uint32_t lastPrintMs{0};
+    std::string fmt;
+
+    bool onChange = false;
+    std::optional<std::string> lastValue;
+
+    std::function<std::pair<LogLevel, std::string>()> eval;
+  };
+
+  WatchId nextId_ = 1;
+  std::unordered_map<WatchId, Watch> watches_;
+
+  // --- rendering helpers ---
+  static std::string renderValue(const std::string &v, const std::string &) {
+    return v;
+  }
+  static std::string renderValue(const char *v, const std::string &) {
+    return v ? std::string(v) : std::string("(null)");
+  }
+  static std::string renderValue(bool v, const std::string &) {
+    return v ? "true" : "false";
+  }
+
+  template <class T>
+  static std::string renderValue(const T &v, const std::string &fmt) {
+    if constexpr (std::is_arithmetic_v<T>) {
+      if (!fmt.empty()) {
+        char buf[256];
+        if constexpr (std::is_floating_point_v<T>) {
+          std::snprintf(buf, sizeof(buf), fmt.c_str(), (double)v);
+        } else {
+          std::snprintf(buf, sizeof(buf), fmt.c_str(), (long long)v);
+        }
+        return std::string(buf);
+      }
+      return std::to_string(v);
+    } else {
+      return std::string("<unrenderable>");
+    }
+  }
+
+  // --- core builder ---
+  template <class T, class Getter>
+  WatchId addWatch(std::string label, LogLevel baseLevel, uint32_t intervalMs,
+                   Getter &&getter, LevelOverride<T> ov, std::string fmt,
+                   bool onChange = false) {
+    Watch w;
+    w.id = nextId_++;
+    w.label = std::move(label);
+    w.baseLevel = baseLevel;
+    w.intervalMs = intervalMs;
+    w.onChange = onChange;
+    w.fmt = std::move(fmt);
+
+    using G = std::decay_t<Getter>;
+    G g = std::forward<Getter>(getter); // store callable by value
+
+    // Capture fmt by value (not by reference to w), and move ov in.
+    const std::string fmtCopy = w.fmt;
+
+    w.eval = [baseLevel, fmtCopy, g = std::move(g),
+              ov =
+                  std::move(ov)]() mutable -> std::pair<LogLevel, std::string> {
+      T v = static_cast<T>(g());
+
+      LogLevel lvl = baseLevel;
+      if (ov.predicate && ov.predicate(v))
+        lvl = ov.elevatedLevel;
+
+      std::string out = renderValue(v, fmtCopy);
+      return {lvl, std::move(out)};
+    };
+
+    WatchId id = w.id;
+    watches_.emplace(id, std::move(w));
+    return id;
+  }
+
+  void printWatches();
+
   struct MotorMonitor {
     std::string name;
     std::shared_ptr<pros::MotorGroup> group = nullptr;
   };
 
-private:
   // State moved from globals
   loggerConfig config_{};
-  LogLevel minLogLevel_ = LogLevel::LOG_LEVEL_INFO;
+  LogLevel minLogLevel_ = LogLevel::INFO;
 
   pros::Mutex logToSdMutex_;
   pros::Mutex loggerMutex_;
@@ -246,5 +368,4 @@ private:
 
   std::unique_ptr<pros::Task> task_;
 };
-
 } // namespace sfx
