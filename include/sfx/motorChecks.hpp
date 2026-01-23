@@ -6,6 +6,7 @@
 #include <string_view>
 #include <vector>
 
+#include "pros/adi.hpp"
 #include "pros/motor_group.hpp"
 
 // Default Thresholds
@@ -37,7 +38,7 @@ checkTemp checkMotorOverheat(pros::MotorGroup &mg,
  * @param useANSI If true, includes color codes.
  * @return std::string The formatted report.
  */
-std::string formatTempCheckResult(std::string_view name, const checkTemp &t,
+std::string formatCheckTemp(std::string_view name, const checkTemp &t,
                                   bool useANSI = true);
 
 /**
@@ -74,7 +75,7 @@ scanMotorReturn scanMotor(pros::MotorGroup &mg, int maxAmpDraw = 2000,
 /**
  * @brief Format full scan results into a readable string.
  */
-std::string formatMotorScanResult(std::string_view name,
+std::string formatMotorScanReturn(std::string_view name,
                                   const scanMotorReturn &r,
                                   bool useAnsi = true);
 

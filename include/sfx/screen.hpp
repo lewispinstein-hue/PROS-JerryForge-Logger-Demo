@@ -139,7 +139,8 @@ public:
                      Args &&...args) {
     // Thread safety
     MutexGuard m(sharedMutex);
-    if (!m.isLocked()) return;
+    if (!m.isLocked())
+      return;
 
     // Clear screen area if requested
     if (clear) {
@@ -156,32 +157,45 @@ public:
       formatted = std::string(name) + ": " + formatted;
     }
 
-    // Automatic text wrapping (naive).
+    // Split into logical lines by '\n' first
+    std::vector<std::string> logicalLines;
+    size_t pos = 0;
+    size_t next;
+    while ((next = formatted.find('\n', pos)) != std::string::npos) {
+      logicalLines.push_back(formatted.substr(pos, next - pos));
+      pos = next + 1;
+    }
+    // Push the remaining part
+    logicalLines.push_back(formatted.substr(pos));
+
+    // Automatic text wrapping (naive)
     size_t maxCharsPerLine = SCREEN_WIDTH / CHAR_WIDTH;
-    size_t start = 0;
 
-    while (start < formatted.size()) {
-      size_t len = std::min(maxCharsPerLine, formatted.size() - start);
+    for (const auto &line : logicalLines) {
+      size_t start = 0;
+      while (start < line.size()) {
+        size_t len = std::min(maxCharsPerLine, line.size() - start);
 
-      // 2. If the remainder fits entirely, just print it and finish
-      if (start + len >= formatted.size()) {
-        textLines.push_back(formatted.substr(start));
-        break;
-      }
-      // Otherwise, look for the LAST space within this allowed range
-      size_t splitPos = formatted.rfind(' ', start + len);
+        // If remainder fits entirely, just push it and break
+        if (start + len >= line.size()) {
+          textLines.push_back(line.substr(start));
+          break;
+        }
 
-      // Check if we found a valid space to split on
-      if (splitPos != std::string::npos && splitPos > start) {
-        // Cut at the space
-        textLines.push_back(formatted.substr(start, splitPos - start));
-        start = splitPos + 1; // +1 skips the actual space character
-      } else {
-        // No space found (it's a massive word), so we MUST force a hard cut
-        textLines.push_back(formatted.substr(start, len));
-        start += len;
+        // Look for the last space within this allowed range
+        size_t splitPos = line.rfind(' ', start + len);
+        if (splitPos != std::string::npos && splitPos > start) {
+          // Cut at the space
+          textLines.push_back(line.substr(start, splitPos - start));
+          start = splitPos + 1; // skip the space
+        } else {
+          // No space, force a hard cut
+          textLines.push_back(line.substr(start, len));
+          start += len;
+        }
       }
     }
+
     // Clamp the number of lines
     while (textLines.size() > MAX_ROWS) {
       textLines.erase(textLines.begin());
@@ -192,6 +206,7 @@ public:
       pros::screen::print(pros::E_TEXT_SMALL, 10,
                           static_cast<int>(i * ROW_HEIGHT), "%s",
                           textLines[i].c_str());
+                          pros::delay(15);
     }
   }
 

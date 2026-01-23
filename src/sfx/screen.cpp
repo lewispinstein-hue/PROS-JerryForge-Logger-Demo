@@ -19,10 +19,6 @@ void Manager::clearScreen() {
 
 void Manager::drawCapsule(int x, int y, int width, int height,
                           uint32_t fillColor, uint32_t borderColor) {
-  // Thread safety
-  MutexGuard m(sharedMutex);
-  if (!m.isLocked()) return;
-
   int radius = height / 2;
 
   // Base Fill

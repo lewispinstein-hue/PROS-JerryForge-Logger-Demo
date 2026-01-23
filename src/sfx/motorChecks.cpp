@@ -1,6 +1,4 @@
 #include "sfx/motorChecks.hpp"
-#include <iomanip>
-#include <sstream>
 
 namespace sfx {
 namespace motorChecks {
@@ -33,7 +31,7 @@ checkTemp checkMotorOverheat(pros::MotorGroup &mg, float maxTemp) {
   return params;
 }
 
-std::string formatTempCheckResult(std::string_view name, const checkTemp &t,
+std::string formatCheckTemp(std::string_view name, const checkTemp &t,
                                   bool useAnsi) {
   std::stringstream ss;
 
@@ -69,8 +67,8 @@ std::string formatTempCheckResult(std::string_view name, const checkTemp &t,
   } else {
     ss << "Overheated motors: none\n";
   }
-
-  ss << "-------| " << name << " |-------";
+  ss << "\n";
+  
   return ss.str();
 }
 
@@ -118,7 +116,7 @@ scanMotorReturn scanMotor(pros::MotorGroup &mg, int maxAmpDraw,
   return result;
 }
 
-std::string formatMotorScanResult(std::string_view name,
+std::string formatMotorScanReturn(std::string_view name,
                                   const scanMotorReturn &r, bool useANSI) {
   std::stringstream ss;
 

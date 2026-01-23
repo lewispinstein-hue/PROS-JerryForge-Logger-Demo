@@ -12,15 +12,14 @@
  * // [INFO]: main.cpp.o:4: Motor speed set to 20
  * @endcode
  *
- * ## Configuration
- * - `output` may be redefined to redirect log output (defaults to `printf`)
- * - `_USE_ANSI` enables colored log output (disable for non-ANSI terminals)
+ * @note
+ *  output may be redefined to redirect log output (defaults to printf)
+ *  _USE_ANSI enables colored log output (disable for non-ANSI terminals)
  *
  */
 
 #ifndef _DEBUG_H
 #define _DEBUG_H
-#include <cstdio>
 
 // Config
 #define output printf
