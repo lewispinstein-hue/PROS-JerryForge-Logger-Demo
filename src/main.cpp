@@ -3,9 +3,7 @@
 #include "lemlib/api.hpp"
 
 // Get access to Sfx's headers
-#include "pros/misc.h"
 #include "sfx/api.hpp"
-#include "sfx/logger.hpp"
 
 // Creating motors and controller
 pros::Controller controller(pros::E_CONTROLLER_MASTER);
@@ -117,14 +115,16 @@ void initialize() {
   display.printToScreen("System Ready!");
   display.printToScreen("Battery: {:.1f}%", pros::battery::get_capacity());
 
+
   logger.watch(
-      "Controller A pressed:", LogLevel::INFO, bool{true},
+      "Controller A pressed:",
+      LogLevel::INFO, bool{true},
       []() { 
       return controller.get_digital(
       pros::E_CONTROLLER_DIGITAL_A); },
       sfx::LevelOverride<int32_t>{
       .elevatedLevel = LogLevel::WARN,
-      .predicate = PREDICATE(v == true)},
+      .predicate = PREDICATE(v == true), },
       "%.1f");
 }
 

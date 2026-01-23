@@ -29,6 +29,7 @@ namespace sfx {
 // System/internal files can suppress source tags with:
 //   #define LOG_SOURCE nullptr
 //   #include "sfx/logger.hpp"
+
 #ifndef LOG_SOURCE
 #define LOG_SOURCE "[USER]"
 #endif
@@ -60,11 +61,6 @@ namespace sfx {
       sfx::LogLevel::FATAL, _SFX_CURRENT_SOURCE, fmt, ##__VA_ARGS__)
 /** @} */
 
-#define SHARED(obj)                                                            \
-  std::shared_ptr<std::remove_reference_t<decltype(obj)>>(&obj, [](void *) {})
-
-#define PREDICATE(func) sfx::as_predicate<int>([](int v) { return func; })
-
 /**
  * @struct MutexGuard
  * @brief RAII wrapper for handling PROS mutexes.
@@ -95,7 +91,7 @@ struct MutexGuard {
 enum LogLevel { NONE = 0, DEBUG, INFO, WARN, ERROR, FATAL };
 
 // --------------------------------------------------------------------------
-// Configuration Constants (unchanged)
+// Configuration Constants
 // --------------------------------------------------------------------------
 constexpr uint32_t thermalCheckInterval = 15000;
 constexpr uint32_t batteryCheckInterval = 20000;
@@ -103,13 +99,24 @@ constexpr uint32_t taskPrintInterval = 30000;
 constexpr uint16_t waitForStdInTimeout = 15000;
 
 constexpr uint32_t SD_FLUSH_INTERVAL_MS = 1000;
-constexpr uint32_t AUTO_SAVE_INTERVAL = 30000;
 
 const double LOW_BATTERY_THRESHOLD = 30.0;
 const double CRITICAL_VOLTAGE_THRESHOLD = 11000;
 
 // ---------- Generic variable watches ----------
-using WatchId = uint64_t;
+using WatchId = uint16_t;
+
+/**
+ * @def Helper to turn a pointer into an std::shared_ptr. Meant for
+ * logger.setRobot, which expects a shared_ptr type
+ */
+#define SHARED(obj)                                                            \
+  std::shared_ptr<std::remove_reference_t<decltype(obj)>>(&obj, [](void *) {})
+
+/**
+ * @def Helper to make logger.watch LevelOverride struct more readable
+ */
+#define PREDICATE(func) sfx::as_predicate<int>([](int v) { return func; })
 
 template <class T> struct LevelOverride {
   using value_type = T;
@@ -141,6 +148,7 @@ public:
     std::atomic<bool> logToTerminal{true};
     std::atomic<bool> logToSD{false};
     std::atomic<bool> outputForJerryio{false};
+    std::atomic<bool> printWatches{true};
   };
 
   struct RobotRef {
@@ -159,7 +167,7 @@ public:
 
   uint32_t status() const;
 
-  // Config setters/getters (names kept close)
+  // Config setters/getters
   void setRunThermalWatchdog(bool v);
   void setPrintLemlibPose(bool v);
   void setPrintBatteryData(bool v);
@@ -170,6 +178,7 @@ public:
   void setLogToSD(bool v);       // locked after start()
   void setOutputForJerryio(bool v);
   void setWaitForStdIn(bool v);
+  void setPrintWatches(bool v);
 
   bool getRunThermalWatchdog() const {
     return config_.runThermalWatchdog.load();
@@ -186,6 +195,7 @@ public:
   bool getLogToTerminal() const { return config_.logToTerminal.load(); }
   bool getLogToSD() const { return config_.logToSD.load(); }
   bool getOutputForJerryio() const { return config_.outputForJerryio.load(); }
+  bool getPrintWatches() const { return config_.printWatches.load(); }
 
   // Min level
   void setLoggerMinLevel(LogLevel level);
@@ -215,7 +225,6 @@ public:
                        std::move(fmt));
   }
   // Overload with onChange
-  // onChange version (no intervalMs)
   template <class Getter>
   WatchId
   watch(std::string label, LogLevel baseLevel, bool onChange, Getter &&getter,
@@ -242,13 +251,13 @@ private:
   void printThermalWatchdog_();
   void printBatteryWatchdog_();
   void printProsTasks_();
-  void handleAutoSaveSd_();
   void printRunningTasks_();
 
   bool checkRobotConfig_(bool checkLemLib = true);
+  bool configCheck();
   bool initSDLogger_();
   void makeTimestampedFilename_(size_t len);
-
+  void waitForStartChar();
   const char *levelToString_(LogLevel level) const;
 
   void copyConfigFrom_(const loggerConfig &cfg);
@@ -357,7 +366,7 @@ private:
 
   bool waitForSTDin_ = false;
   bool started_ = false;
-  bool sdLocked_ = false; // logToSD locked after start
+  bool sdLocked_ = false; // logToSD locked
 
   // Robot refs
   std::shared_ptr<lemlib::Chassis> pChassis_ = nullptr;

@@ -1,12 +1,8 @@
-#include "pros/rtos.hpp"
 #define LOG_SOURCE nullptr
 #include "sfx/logger.hpp"
 #include "sfx/motorChecks.hpp"
-
-#include <cmath>
 #include <cstdarg>
 #include <cstring>
-#include <ctime>
 
 namespace sfx {
 
@@ -99,6 +95,11 @@ void Logger::setOutputForJerryio(bool v) {
   LOG_DEBUG("outputForJerryio set to: %d", v);
 }
 
+void Logger::setPrintWatches(bool v) {
+  config_.printWatches.store(v);
+  LOG_DEBUG("printWatches set to: %d", v);
+}
+
 void Logger::setWaitForStdIn(bool v) {
   if (config_.logToSD.load() && !config_.logToTerminal.load()) {
     LOG_WARN("waitForStdIn value is not settable; LogToSD is enabled.");
@@ -152,8 +153,6 @@ void Logger::registerMotor(std::string name, pros::MotorGroup *motor) {
 
   try {
     if (motor != nullptr) {
-      // Preserve original semantics: wrap provided pointer in shared_ptr.
-      // NOTE: This assumes caller manages lifetime appropriately.
       std::shared_ptr<pros::MotorGroup> newMotor =
           std::shared_ptr<pros::MotorGroup>(motor);
       internalMotorsToScan_.push_back({name, newMotor});
@@ -495,31 +494,72 @@ void Logger::printWatches() {
       w.lastValue = valueStr;
     }
 
+    std::string label = w.label;
     switch (lvl) {
     case LogLevel::DEBUG:
-      LOG_DEBUG("%s %s", w.label.c_str(), valueStr.c_str());
+      LOG_DEBUG("%s %s", label.c_str(), valueStr.c_str());
       break;
     case LogLevel::INFO:
-      LOG_INFO("%s %s", w.label.c_str(), valueStr.c_str());
+      LOG_INFO("%s %s", label.c_str(), valueStr.c_str());
       break;
     case LogLevel::WARN:
-      LOG_WARN("%s %s", w.label.c_str(), valueStr.c_str());
+      LOG_WARN("%s %s", label.c_str(), valueStr.c_str());
       break;
     case LogLevel::ERROR:
-      LOG_ERROR("%s %s", w.label.c_str(), valueStr.c_str());
+      LOG_ERROR("%s %s", label.c_str(), valueStr.c_str());
       break;
     default:
-      LOG_INFO("%s %s", w.label.c_str(), valueStr.c_str());
+      LOG_INFO("%s %s", label.c_str(), valueStr.c_str());
       break;
     }
   }
 }
 
-// --- Helper extractions (minimal; called by Update) ---
-void Logger::printLemlibPose_() {
-  // This function is intentionally implemented inside Update() to preserve
-  // exact norm() capture.
+void Logger::waitForStartChar() {
+  char startChar;
+  uint32_t startTime = pros::millis();
+  LOG_INFO("Waiting for handshake (Y) with timeout...\n");
+
+  uint32_t startTime2 = pros::millis();
+
+  while ((pros::millis() - startTime2) < waitForStdInTimeout) {
+    int c = getchar();
+
+    if (c != EOF) {
+      char startChar2 = (char)c;
+      if (startChar2 == 'Y') {
+        LOG_INFO("startChar received! Starting logger...");
+        break;
+      }
+    }
+    if ((pros::millis() - startTime2) < waitForStdInTimeout - 21) {
+      LOG_WARN("Logger auto-started after timeout.\n");
+    }
+    pros::delay(20);
+  }
 }
+
+bool Logger::configCheck() {
+  if (config_.printLemlibPose.load()) {
+    if (!checkRobotConfig_()) {
+      LOG_FATAL("At least one pointer set by setRobot(RobotRef ref) is "
+                "nullptr. Aborting!\n");
+      LOG_INFO("You can disable LemLib logging to allow logger to run "
+               "without setting up its config.");
+      return false;
+    } else {
+      LOG_INFO("All pointers set by setRobot(RobotRef ref) seem to be valid.");
+    }
+  } else if (!checkRobotConfig_(false)) {
+    LOG_FATAL("At least one pointer set by setRobot(RobotRef ref) is "
+              "nullptr. Aborting!\n");
+    return false;
+  } else {
+    LOG_INFO("All pointers set by setRobot(RobotRef ref) seem to be valid.");
+  }
+  return true;
+}
+// --- Helper extractions (minimal; called by Update) ---
 
 void Logger::printThermalWatchdog_() {
   for (auto &entry : internalMotorsToScan_) {
@@ -550,26 +590,6 @@ void Logger::printThermalWatchdog_() {
   }
 }
 
-void Logger::handleAutoSaveSd_() {
-  LOG_INFO("Attempting to close/open SD card...");
-  if (sdFile_ != nullptr) {
-    fflush(sdFile_);
-    fclose(sdFile_);
-    sdFile_ = fopen(currentFilename_, "a");
-    if (sdFile_ != nullptr) {
-      LOG_INFO("SD Card successfully reopened.");
-      fprintf(sdFile_, "[SYSTEM]: Auto-save successful.\n");
-    } else {
-      LOG_FATAL("SD Card could not be reopened; disabling SD card logging.");
-      config_.logToSD.store(false);
-    }
-    fflush(sdFile_);
-  } else {
-    LOG_ERROR("sdFile has become nullptr, disabling SD card logging.");
-  }
-  config_.logToSD.store(false);
-}
-
 void Logger::Update() {
   static pros::MotorGears drivetrain_gearset =
       pLeftDrivetrain_ ? pLeftDrivetrain_->get_gearing()
@@ -598,54 +618,18 @@ void Logger::Update() {
   };
 
   try {
-    char startChar;
-    uint32_t startTime = pros::millis();
 
+    // Getting start char or automatic start
     if (config_.logToTerminal.load() && waitForSTDin_) {
-      LOG_INFO("Waiting for handshake (Y) with timeout...\n");
-
-      uint32_t startTime2 = pros::millis();
-
-      while ((pros::millis() - startTime2) < waitForStdInTimeout) {
-        int c = getchar();
-
-        if (c != EOF) {
-          char startChar2 = (char)c;
-          if (startChar2 == 'Y') {
-            LOG_INFO("startChar received! Starting logger...");
-            break;
-          }
-        }
-        if ((pros::millis() - startTime2) < waitForStdInTimeout - 21) {
-          LOG_WARN("Logger auto-started after timeout.\n");
-        }
-        pros::delay(20);
-      }
-
+      waitForStartChar();
     } else {
       LOG_INFO("Logger started automatically!");
     }
-
     pros::delay(1000);
 
-    if (config_.printLemlibPose.load()) {
-      if (!checkRobotConfig_()) {
-        LOG_FATAL("At least one pointer set by setRobot(RobotRef ref) is "
-                  "nullptr. Aborting!\n");
-        LOG_INFO("You can disable LemLib logging to allow logger to run "
-                 "without setting up its config.");
-        return;
-      } else {
-        LOG_INFO(
-            "All pointers set by setRobot(RobotRef ref) seem to be valid.");
-      }
-    } else if (!checkRobotConfig_(false)) {
-      LOG_FATAL("At least one pointer set by setRobot(RobotRef ref) is "
-                "nullptr. Aborting!\n");
+    // Config check (completely handled in configCheck function)
+    if (!configCheck())
       return;
-    } else {
-      LOG_INFO("All pointers set by setRobot(RobotRef ref) seem to be valid.");
-    }
 
     // ----- Logging ----- //
     if (config_.outputForJerryio.load()) {
@@ -672,6 +656,7 @@ void Logger::Update() {
       }
     }
 
+    // Reference times
     uint32_t lastThermalCheck, lastBatteryCheck, lastTasksPrint,
         lastAutoSave = pros::millis();
 
@@ -704,13 +689,8 @@ void Logger::Update() {
         lastTasksPrint = now;
       }
 
-      if (pros::millis() - lastAutoSave > AUTO_SAVE_INTERVAL &&
-          config_.logToSD.load()) {
-        handleAutoSaveSd_();
-        lastAutoSave = pros::millis();
-      }
-
-      printWatches();
+      if (config_.printWatches)
+        printWatches();
 
       fflush(stdout);
 
