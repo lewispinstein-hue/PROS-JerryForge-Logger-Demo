@@ -1,3 +1,5 @@
+#include "pros/adi.hpp"
+#include "pros/rtos.h"
 #define LOG_SOURCE nullptr
 #include "sfx/logger.hpp"
 #include "sfx/motorChecks.hpp"
@@ -105,7 +107,8 @@ void Logger::setWaitForStdIn(bool v) {
     LOG_WARN("waitForStdIn value is not settable; LogToSD is enabled.");
     return;
   }
-  if (status()) {
+  if (status() == pros::E_TASK_STATE_READY ||
+      status() == pros::E_TASK_STATE_RUNNING) {
     LOG_WARN(
         "setWaitForStdIn() called after logger start — ignored. Set value: %d",
         v);
@@ -255,15 +258,13 @@ void Logger::printRunningTasks_() {
 }
 
 void Logger::makeTimestampedFilename_(size_t /*len*/) {
-  MutexGuard m(generalMutex_, TIMEOUT_MAX);
-
   time_t now = time(0);
   struct tm *tstruct = localtime(&now);
 
   if (tstruct->tm_year < 100) {
     printf("[DEBUG]: VEX RTC Inaccurate. Falling back to program duration.\n");
-    snprintf(currentFilename_, sizeof(currentFilename_), "/usd/%u-%u.log",
-             pros::millis() / 1000, pros::millis());
+    snprintf(currentFilename_, sizeof(currentFilename_), "/usd/%s_%u-%u.log",
+             date, pros::millis() / 1000, pros::millis());
   } else {
     printf("[DEBUG]: VEX RTC Plausible. Creating file name with date.\n");
     strftime(currentFilename_, sizeof(currentFilename_),
@@ -272,12 +273,8 @@ void Logger::makeTimestampedFilename_(size_t /*len*/) {
 }
 
 bool Logger::initSDLogger_() {
-  MutexGuard m(generalMutex_);
-  if (!m.isLocked())
-    return false;
-
   if (pros::usd::is_installed()) {
-    printf("[DEBUG]: SD Card installed\n");
+    printf("[DEBUG]: SD Card installed (On first attempt)\n");
     pros::delay(500);
   } else {
     printf("[DEBUG]: SD Card not installed, rechecking...\n");
@@ -287,7 +284,7 @@ bool Logger::initSDLogger_() {
         break;
       }
       printf("[DEBUG]: Rechecking SD card installment... Attempts: %d/10\n", i);
-      pros::delay(100);
+      pros::delay(200);
     }
   }
 
@@ -313,10 +310,6 @@ bool Logger::initSDLogger_() {
 
 void Logger::logToSD(const char *levelStr, const char *fmt, ...) {
   if (!sdFile_) {
-    printf("[%d] [ERROR]: Writing to SD card failed!. FILE * is null. Message "
-           "lost! ",
-           pros::millis() / 1000);
-    printf("Message error level was: %s\n", levelStr);
     return;
   }
 
@@ -333,7 +326,8 @@ void Logger::logToSD(const char *levelStr, const char *fmt, ...) {
 
   fprintf(sdFile_, "\n");
 
-  bool isError = (strcmp(levelStr, "ERROR") == 0);
+  bool isError =
+      (strcmp(levelStr, "ERROR") == 0 || strcmp(levelStr, "FATAL") == 0);
 
   if (isError || (pros::millis() - lastFlush_ >= SD_FLUSH_INTERVAL_MS)) {
     fflush(sdFile_);
@@ -414,7 +408,6 @@ void Logger::start() {
     return;
   }
   started_ = true;
-  sdLocked_ = true;
 
   // If user didn't call initialize(), SD init used to happen here.
   // Preserve behavior by initializing SD now if requested and not already open.
@@ -422,13 +415,14 @@ void Logger::start() {
     bool success = initSDLogger_();
     if (!success) {
       config_.logToSD.store(false);
+      sdLocked_ = true;
       LOG_FATAL("initSDCard failed! Unable to initialize SD card.\n");
     } else {
       LOG_INFO("Successfully initialized SD card!\n");
     }
   }
 
-  // Calculate divide factor to normalize return velocity to ±127 (unchanged)
+  // Calculate divide factor to normalize return velocity to ±127
   static pros::MotorGears drivetrain_gearset =
       pLeftDrivetrain_ ? pLeftDrivetrain_->get_gearing()
                        : pros::MotorGears::invalid;
@@ -447,7 +441,7 @@ void Logger::start() {
     divide_factor_drivetrainRPM = 300.0;
   }
 
-  // Lambda helper to cap the output at ±127 (unchanged)
+  // Lambda helper to cap the output at ±127
   auto norm = [&](double rpm) {
     double v = (rpm / divide_factor_drivetrainRPM) * 127.0;
     if (v > 127)
@@ -457,11 +451,10 @@ void Logger::start() {
     return v;
   };
 
-  // Create task that runs Update (Update uses same structure as original code)
+  // Create task that runs Update
   task_ = std::make_unique<pros::Task>(
       [this, norm]() mutable {
-        // Preserve original task body (moved into Update-like logic with same
-        // checks). We keep the original code structure here to avoid behavior
+        // We keep the original code structure here to avoid behavior
         // changes. NOTE: Helper extraction happens inside Update(). Store norm
         // lambda in thread local via capture; pass to pose printing via
         // member-lambda usage inside Update.
@@ -474,18 +467,18 @@ void Logger::start() {
 
 void Logger::printWatches() {
   uint32_t nowMs = pros::millis();
-
   for (auto &[id, w] : watches_) {
     // Gate evaluation frequency for ALL watches
-    if (w.lastPrintMs != 0 && (nowMs - w.lastPrintMs) < w.intervalMs) {
+    if (w.lastPrintMs != 0 && (nowMs - w.lastPrintMs) < w.intervalMs &&
+        !w.onChange) {
+      w.lastPrintMs = nowMs;
       continue;
     }
-    w.lastPrintMs = nowMs;
 
     if (!w.eval)
       continue;
 
-    auto [lvl, valueStr] = w.eval();
+    auto [lvl, valueStr, overrideLabel] = w.eval();
 
     if (w.onChange) {
       if (w.lastValue && *w.lastValue == valueStr) {
@@ -494,7 +487,11 @@ void Logger::printWatches() {
       w.lastValue = valueStr;
     }
 
-    std::string label = w.label;
+    std::string label;
+
+    if (overrideLabel != "" && overrideLabel != "\0")
+      label = overrideLabel;
+
     switch (lvl) {
     case LogLevel::DEBUG:
       LOG_DEBUG("%s %s", label.c_str(), valueStr.c_str());
@@ -520,19 +517,17 @@ void Logger::waitForStartChar() {
   uint32_t startTime = pros::millis();
   LOG_INFO("Waiting for handshake (Y) with timeout...\n");
 
-  uint32_t startTime2 = pros::millis();
-
-  while ((pros::millis() - startTime2) < waitForStdInTimeout) {
+  while ((pros::millis() - startTime) < waitForStdInTimeout) {
     int c = getchar();
 
     if (c != EOF) {
-      char startChar2 = (char)c;
-      if (startChar2 == 'Y') {
+      char startChar = (char)c;
+      if (startChar == 'Y') {
         LOG_INFO("startChar received! Starting logger...");
         break;
       }
     }
-    if ((pros::millis() - startTime2) < waitForStdInTimeout - 21) {
+    if ((pros::millis() - startTime) < waitForStdInTimeout - 21) {
       LOG_WARN("Logger auto-started after timeout.\n");
     }
     pros::delay(20);
@@ -591,6 +586,15 @@ void Logger::printThermalWatchdog_() {
 }
 
 void Logger::Update() {
+  pros::delay(200);
+  // Getting start char or automatic start
+  if (config_.logToTerminal.load() && waitForSTDin_) {
+    waitForStartChar();
+  } else {
+    LOG_INFO("Logger started automatically!");
+  }
+  pros::delay(1000);
+
   static pros::MotorGears drivetrain_gearset =
       pLeftDrivetrain_ ? pLeftDrivetrain_->get_gearing()
                        : pros::MotorGears::invalid;
@@ -618,15 +622,6 @@ void Logger::Update() {
   };
 
   try {
-
-    // Getting start char or automatic start
-    if (config_.logToTerminal.load() && waitForSTDin_) {
-      waitForStartChar();
-    } else {
-      LOG_INFO("Logger started automatically!");
-    }
-    pros::delay(1000);
-
     // Config check (completely handled in configCheck function)
     if (!configCheck())
       return;

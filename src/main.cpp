@@ -3,7 +3,10 @@
 #include "lemlib/api.hpp"
 
 // Get access to Sfx's headers
+#include "pros/adi.hpp"
+#include "pros/misc.h"
 #include "sfx/api.hpp"
+#include <cstdint>
 
 // Creating motors and controller
 pros::Controller controller(pros::E_CONTROLLER_MASTER);
@@ -85,6 +88,8 @@ lemlib::Chassis chassis(drivetrain, // drivetrain settings
  */
 sfx::screen::Manager display;
 
+pros::adi::DigitalIn b('H');
+
 void initialize() {
   // --- Logger Setup ---
   auto &logger = sfx::Logger::get_instance();
@@ -101,11 +106,11 @@ void initialize() {
 
   // 3. Configure Logging Behaviors
   logger.setLogToTerminal(true);  // Print logs to the computer via USB
-  logger.setLogToSD(false);       // Save logs to the SD card (Recommended!)
+  logger.setLogToSD(false);       // Save logs to the SD card 
   logger.setPrintProsTasks(true); // Log when PROS tasks start/stop
   logger.setOnlyPrintOverheatedMotors(false); // If true, hides cool motors
   logger.setLoggerMinLevel(LogLevel::INFO); // Hide "Debug" messages
-
+  logger.setPrintWatches(true);
   // 4. Calibrate & Start
   chassis.calibrate(); // Calibrate IMU
   logger.start();      // Start the background logging task
@@ -114,18 +119,31 @@ void initialize() {
   display.clearScreen();
   display.printToScreen("System Ready!");
   display.printToScreen("Battery: {:.1f}%", pros::battery::get_capacity());
+  display.printToScreen("Touch the screen to continue...");
+  display.waitForScreenTouch();
 
+  // logger.watch(
+  //   "Right X Joystick:",
+  //   LogLevel::INFO, true,
+  //   [&]() { 
+  //     return controller.get_analog(
+  //     pros::E_CONTROLLER_ANALOG_RIGHT_X);},
+  //   sfx::LevelOverride<int32_t>{
+  //   .elevatedLevel = LogLevel::WARN,
+  //   .predicate = PREDICATE(v > 64), 
+  //   .label = "Right X Joystick value over 64:"
+  // });
 
   logger.watch(
-      "Controller A pressed:",
-      LogLevel::INFO, bool{true},
-      []() { 
-      return controller.get_digital(
-      pros::E_CONTROLLER_DIGITAL_A); },
-      sfx::LevelOverride<int32_t>{
-      .elevatedLevel = LogLevel::WARN,
-      .predicate = PREDICATE(v == true), },
-      "%.1f");
+    "Button B:",
+    LogLevel::INFO, true,
+    [&]() { 
+      return (bool)b.get_value(); },
+    sfx::LevelOverride<bool>{
+    .elevatedLevel = LogLevel::WARN,
+    .predicate = PREDICATE(v == true), 
+    .label = "Button B Predicate:"
+  });
 }
 
 /**
@@ -227,15 +245,15 @@ void opcontrol() {
   }
 
   display.printToScreen("Touch the screen to continue...");
-  // Simple holder to constantly re-check for screen touch to continue
-  while (!display.waitForScreenTouch(100))
-    pros::delay(10);
+  // Simple wait for screen touch use that waits until screen is touched
+  // before allowing the program to continue.
+  display.waitForScreenTouch();
 
   // -- Main Drive Loop --
+  display.clearScreen();
   display.printToScreen(true, "Driver Control", "Active");
 
   while (true) {
-    LOG_INFO("AAA");
     // Get joystick values
     int leftY = controller.get_analog(pros::E_CONTROLLER_ANALOG_LEFT_Y);
     int rightX = controller.get_analog(pros::E_CONTROLLER_ANALOG_RIGHT_X);
