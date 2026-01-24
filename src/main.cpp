@@ -115,35 +115,24 @@ void initialize() {
   chassis.calibrate(); // Calibrate IMU
   logger.start();      // Start the background logging task
 
+  logger.watch(
+    "Right X Joystick:",
+    LogLevel::INFO, true,
+    [&]() { 
+      return controller.get_analog(
+      pros::E_CONTROLLER_ANALOG_RIGHT_X);},
+    sfx::LevelOverride<int32_t>{
+    .elevatedLevel = LogLevel::WARN,
+    .predicate = PREDICATE(v > 64), 
+    .label = "Right X Joystick value over 64:"
+  });
+
   // Print startup success to the brain screen
   display.clearScreen();
   display.printToScreen("System Ready!");
   display.printToScreen("Battery: {:.1f}%", pros::battery::get_capacity());
   display.printToScreen("Touch the screen to continue...");
   display.waitForScreenTouch();
-
-  // logger.watch(
-  //   "Right X Joystick:",
-  //   LogLevel::INFO, true,
-  //   [&]() { 
-  //     return controller.get_analog(
-  //     pros::E_CONTROLLER_ANALOG_RIGHT_X);},
-  //   sfx::LevelOverride<int32_t>{
-  //   .elevatedLevel = LogLevel::WARN,
-  //   .predicate = PREDICATE(v > 64), 
-  //   .label = "Right X Joystick value over 64:"
-  // });
-
-  logger.watch(
-    "Button B:",
-    LogLevel::INFO, true,
-    [&]() { 
-      return (bool)b.get_value(); },
-    sfx::LevelOverride<bool>{
-    .elevatedLevel = LogLevel::WARN,
-    .predicate = PREDICATE(v == true), 
-    .label = "Button B Predicate:"
-  });
 }
 
 /**
