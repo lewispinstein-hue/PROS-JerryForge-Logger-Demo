@@ -1,5 +1,4 @@
-#include "pros/adi.hpp"
-#include "pros/rtos.h"
+#include "pros/rtos.hpp"
 #define LOG_SOURCE nullptr
 #include "sfx/logger.hpp"
 #include "sfx/motorChecks.hpp"
@@ -289,8 +288,7 @@ bool Logger::initSDLogger_() {
   }
 
   if (!pros::usd::is_installed()) {
-    printf(
-        "[DEBUG]: SD Card not installed after 10 attemps. Aborting SD card.\n");
+    printf("[DEBUG]: SD Card not installed after 10 attemps. Aborting SD card.\n");
     return false;
   }
 
@@ -488,26 +486,27 @@ void Logger::printWatches() {
     }
 
     std::string label;
+    std::string finalOutput;
 
-    if (overrideLabel != "" && overrideLabel != "\0")
+    // Only add override label if present
+    if (!overrideLabel.empty())
       label = overrideLabel;
 
+    if (config_.outputForJerryio.load()) {
+      // Add watch tag and add comma separator 
+      finalOutput = std::string("[WATCH],") +
+                    std::to_string(nowMs) +
+                    levelToString_(lvl) + 
+                    "," + label + "," + valueStr;
+    } else 
+      finalOutput = label + " " + valueStr;
+
     switch (lvl) {
-    case LogLevel::DEBUG:
-      LOG_DEBUG("%s %s", label.c_str(), valueStr.c_str());
-      break;
-    case LogLevel::INFO:
-      LOG_INFO("%s %s", label.c_str(), valueStr.c_str());
-      break;
-    case LogLevel::WARN:
-      LOG_WARN("%s %s", label.c_str(), valueStr.c_str());
-      break;
-    case LogLevel::ERROR:
-      LOG_ERROR("%s %s", label.c_str(), valueStr.c_str());
-      break;
-    default:
-      LOG_INFO("%s %s", label.c_str(), valueStr.c_str());
-      break;
+    case LogLevel::DEBUG: LOG_DEBUG("%s", finalOutput.c_str()); break;
+    case LogLevel::INFO:  LOG_INFO("%s", finalOutput.c_str());  break;
+    case LogLevel::WARN:  LOG_WARN("%s", finalOutput.c_str());  break;
+    case LogLevel::ERROR: LOG_ERROR("%s", finalOutput.c_str()); break;
+    default: LOG_INFO("%s", finalOutput.c_str()); break;
     }
   }
 }
@@ -537,21 +536,16 @@ void Logger::waitForStartChar() {
 bool Logger::configCheck() {
   if (config_.printLemlibPose.load()) {
     if (!checkRobotConfig_()) {
-      LOG_FATAL("At least one pointer set by setRobot(RobotRef ref) is "
-                "nullptr. Aborting!\n");
-      LOG_INFO("You can disable LemLib logging to allow logger to run "
-               "without setting up its config.");
+      LOG_FATAL("At least one pointer set by setRobot(RobotRef ref) is nullptr. Aborting!\n");
+      LOG_INFO("You can disable LemLib logging to allow logger to run without setting up its config.");
       return false;
-    } else {
-      LOG_INFO("All pointers set by setRobot(RobotRef ref) seem to be valid.");
     }
   } else if (!checkRobotConfig_(false)) {
-    LOG_FATAL("At least one pointer set by setRobot(RobotRef ref) is "
-              "nullptr. Aborting!\n");
+    LOG_FATAL("At least one pointer set by setRobot(RobotRef ref) is nullptr. Aborting!\n");
     return false;
-  } else {
-    LOG_INFO("All pointers set by setRobot(RobotRef ref) seem to be valid.");
   }
+
+  LOG_INFO("All pointers set by setRobot(RobotRef ref) seem to be valid.");
   return true;
 }
 // --- Helper extractions (minimal; called by Update) ---
@@ -571,16 +565,17 @@ void Logger::printThermalWatchdog_() {
         LOG_ERROR("%s CRITICAL TEMP! Max: %.0fC | Ports: %s",
                   entry.name.c_str(), status.maxTemp, ports.c_str());
       } else {
-        LOG_WARN("%s Overheating! Max: %.0fC | Ports: %s", entry.name.c_str(),
-                 status.maxTemp, ports.c_str());
+        LOG_WARN("%s Overheating! Max: %.0fC | Ports: %s", 
+                 entry.name.c_str(), status.maxTemp, 
+                 ports.c_str());
       }
     } else if (config_.printMotorWatchdogWarnings.load() &&
                status.maxTemp >= 50.0) {
       LOG_WARN("%s is warm/approaching throttle. (Max: %.0fC)",
                entry.name.c_str(), status.maxTemp);
     } else if (!config_.onlyPrintOverheatedMotors.load()) {
-      LOG_INFO("%s MotorGroup OK (Max: %.0fC)", entry.name.c_str(),
-               status.maxTemp);
+      LOG_INFO("%s MotorGroup OK (Max: %.0fC)", 
+               entry.name.c_str(), status.maxTemp);
     }
   }
 }
@@ -629,8 +624,7 @@ void Logger::Update() {
     // ----- Logging ----- //
     if (config_.outputForJerryio.load()) {
       if (!config_.printLemlibPose.load()) {
-        LOG_FATAL(
-            "You MUST have LemLib logging enabled to use outputForJerryio!");
+        LOG_FATAL("You MUST have LemLib logging enabled to use outputForJerryio!");
         LOG_FATAL("Enable LemLib logging or disable outputForJerryio");
         return;
       }
@@ -638,10 +632,15 @@ void Logger::Update() {
       while (true) {
         float normalizedTheta = fmod(pChassis_->getPose().theta, 360.0);
 
-        LOG_INFO("[DATA],%.2f,%.2f,%.2f,%.1f,%.1f", pChassis_->getPose().x,
+        LOG_INFO("[DATA],%d,%.2f,%.2f,%.2f,%.1f,%.1f", 
+                 pros::millis(),
+                 pChassis_->getPose().x,
                  pChassis_->getPose().y, normalizedTheta,
                  norm(pLeftDrivetrain_->get_actual_velocity()),
                  norm(pRightDrivetrain_->get_actual_velocity()));
+        
+        if (config_.printWatches)
+          printWatches();
 
         if (config_.logToTerminal.load()) {
           pros::delay(120);
@@ -656,7 +655,7 @@ void Logger::Update() {
         lastAutoSave = pros::millis();
 
     while (true) {
-      if (config_.printLemlibPose.load()) {
+      if (config_.printLemlibPose.load() && !pChassis_) {
         LOG_INFO("Pose X: %.2f Y: %.2f Theta: %.2f | LVel: %.1f RVel: %.1f",
                  pChassis_->getPose().x, pChassis_->getPose().y,
                  pChassis_->getPose().theta,

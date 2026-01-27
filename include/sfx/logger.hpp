@@ -47,6 +47,7 @@
 #include "pros/rtos.h"
 #include "pros/rtos.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -216,7 +217,7 @@ const double CRITICAL_VOLTAGE_THRESHOLD = 11700;
 using WatchId = uint64_t;
 
 /**
- * @def SHARED
+ * @brief shared
  * @brief Wrap a stack/global object pointer into a non-owning std::shared_ptr.
  *
  * Where to use it:
@@ -230,11 +231,19 @@ using WatchId = uint64_t;
  * lemlib::Chassis chassis(...);
  * pros::MotorGroup left(...), right(...);
  *
- * logger.setRobot({ SHARED(chassis), SHARED(left), SHARED(right) });
+ * logger.setRobot({
+ *   .chassis = sfx::shared(chassis),
+ *   .Left_Drivetrain = sfx::shared(left),
+ *   .Right_Drivetrain = sfx::shared(right)
+ * });
  * @endcode
  */
-#define SHARED(obj)                                                            \
-  std::shared_ptr<std::remove_reference_t<decltype(obj)>>(&obj, [](void *) {})
+ 
+template <class T>
+std::shared_ptr<std::remove_reference_t<T>> shared(T& obj) {
+  using U = std::remove_reference_t<T>;
+  return std::shared_ptr<U>(std::addressof(obj), [](U*) {}); // no-op deleter
+}
 
 /**
  * @def PREDICATE
@@ -246,7 +255,8 @@ using WatchId = uint64_t;
  * @note This macro is limited to predicates over int32_t. For other types, use
  *       sfx::as_predicate<Typename>(expression) directly.
  */
-#define PREDICATE(func) sfx::as_predicate<int32_t>([](int32_t v) { return func; })
+#define PREDICATE(func) \
+sfx::as_predicate<int32_t>([](int32_t v) { return func; })
 
 /**
  * @struct LevelOverride

@@ -3,10 +3,7 @@
 #include "lemlib/api.hpp"
 
 // Get access to Sfx's headers
-#include "pros/adi.hpp"
-#include "pros/misc.h"
 #include "sfx/api.hpp"
-#include <cstdint>
 
 // Creating motors and controller
 pros::Controller controller(pros::E_CONTROLLER_MASTER);
@@ -88,8 +85,6 @@ lemlib::Chassis chassis(drivetrain, // drivetrain settings
  */
 sfx::screen::Manager display;
 
-pros::adi::DigitalIn b('H');
-
 void initialize() {
   // --- Logger Setup ---
   auto &logger = sfx::Logger::get_instance();
@@ -99,9 +94,9 @@ void initialize() {
 
   // 2. Pass the chassis and controllers to the logger so it can record them
   logger.setRobot({
-    .chassis = SHARED(chassis),
-    .Left_Drivetrain = SHARED(left_mg),
-    .Right_Drivetrain = SHARED(right_mg)
+    .chassis = sfx::shared(chassis),
+    .Left_Drivetrain = sfx::shared(left_mg),
+    .Right_Drivetrain = sfx::shared(right_mg)
   });
 
   // 3. Configure Logging Behaviors
@@ -200,7 +195,7 @@ void opcontrol() {
   chassis.setPose(0, 0, 0);
 
   // Wait for user input
-  sfx::screen::ButtonId button_pushed = display.waitForBottomButtonTap();
+  ButtonId button_pushed = display.waitForBottomButtonTap();
 
   // Handle the button press
   switch (button_pushed) {
@@ -222,8 +217,8 @@ void opcontrol() {
     auto status = sfx::motorChecks::checkMotorOverheat(left_mg);
 
     // 2. Format it into a nice string
-    std::string output =
-        sfx::motorChecks::formatCheckTemp("Left Drive", status, false);
+    std::string output = sfx::motorChecks::formatCheckTemp(
+                         "Left Drive", status, false);
 
     // 3. Print to screen
     display.printToScreen(true, "Results", "{}", output);
@@ -234,8 +229,6 @@ void opcontrol() {
   }
 
   display.printToScreen("Touch the screen to continue...");
-  // Simple wait for screen touch use that waits until screen is touched
-  // before allowing the program to continue.
   display.waitForScreenTouch();
 
   // -- Main Drive Loop --
