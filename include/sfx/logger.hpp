@@ -44,23 +44,9 @@
  */
 
 #include "lemlib/chassis/chassis.hpp"
-#include "pros/rtos.h"
 #include "pros/rtos.hpp"
 
-#include <algorithm>
-#include <atomic>
-#include <cstddef>
-#include <cstdint>
-#include <cstdio>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <string>
-#include <sys/cdefs.h>
-#include <type_traits>
-#include <unordered_map>
-#include <utility>
-#include <vector>
+
 
 namespace sfx {
 

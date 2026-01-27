@@ -1,7 +1,7 @@
 {
     "density": 1,
-    "xy_tol": 2.0,
-    "theta_tol": 10.0,
+    "xy_tol": 3.5,
+    "theta_tol": 30.0,
 
     "visible_xy_tol": 1000.0,
     "visible_theta_tol": 1000.0, 
@@ -21,5 +21,10 @@
     "output_folder": "General",
 
     "render_invisible_waypoints": false,
-    "template": "moveToPoint(${x}, ${y}, ${theta}, ${speed}); # i=${iteration}, d=${distance}"
+    "template": "moveToPoint(${x}, ${y}, ${theta}, ${speed}); # i=${iteration}, d=${distance}",
+    
+    "export_viewer_json": true,
+    "viewer_units": "in",
+    "viewer_thin_ms": 20,
+    "log_hz": 100
 }

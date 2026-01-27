@@ -3,7 +3,6 @@
 The JerryPlotter CLI casts raw robot log files into JerryIO-compatible path data, and vice-versa. It handles coordinate normalization, path thinning, and coordinate offsets.
 
 Stop guessing where your robot drove. JerryPlotter turns your raw terminal logs into editable, visual paths in seconds, allowing you to record manual driving and cast it into autonomous code.
-See [tools/jerryforge/README.md](tools/jerryforge/README.md) for details on using JerryForge.
 
 **Optional helper (Linux/MacOS):**  
 By running:  
@@ -21,7 +20,7 @@ You can create an alias and run JerryForge through that alias. Example:
 ## HOW TO RUN
 
 **General Syntax:**  
-`python3 jerryforge.py [COMMAND] [FLAGS]`
+`python3 jerryforge.py [COMMAND] [OPTIONAL FLAGS]`
 
 **Example:**  
 `python3 jerryforge.py --latest --fast`
@@ -45,7 +44,7 @@ pros terminal | tee "run.log"
 ```
 
 ***Important:** You must set up something that logs your robot’s pose in this specific format:*  
-`[DATA],x,y,theta`
+`[DATA],x,y,theta,right_vel,left_vel`
 
 This creates a file and dumps the terminal output into it.
 
@@ -90,7 +89,7 @@ You now have a fully editable JerryIO path that recreates the route you just dro
 | `--path-name <name>` | Sets the internal JerryIO path name (batch default: `name_filename`). |
 | `--range A:B` | Filters points by index. Example: `0:3000` processes only the first 3000 points. |
 | `--index <N>` | **Latest only**: Selects the Nth file in the list. |
-| `--recent <N>` | **Batch only**: Processes the N most recent files. |
+| `--new <N>` | **Batch only**: Processes the N most recent files. |
 | `--old <N>` | **Batch only**: Processes the N oldest files. |
 | `--skip-confirm` | **Batch only**: Skips per-file confirmation prompts. |
 
@@ -269,7 +268,7 @@ For `--batch` runs:
 
 ---
 
-### `--recent`
+### `--new`
 
 Limits batch processing to the N most recent `.log` files.
 
@@ -278,7 +277,7 @@ Only valid with `--batch`.
 Example:
 
 ```shell
-python3 jerryforge.py --batch --recent 5
+python3 jerryforge.py --batch --new 5
 ```
 
 ---
@@ -306,7 +305,7 @@ Only valid with `--batch`.
 Example:
 
 ```shell
-python3 jerryforge.py --batch --recent 2 --skip-confirm
+python3 jerryforge.py --batch --new 2 --skip-confirm
 ```
 
 ---
@@ -368,7 +367,7 @@ This is the primary workflow for turning manual driving into a structured autono
 
 * Works with all standard flags (`--fast`, `--verbose`, `--config`, `--out`, `--range`, etc.)
 * Requires robot logs to contain pose data in the format:  
-`[DATA],x,y,theta`
+`[DATA],x,y,theta,right_vel,left_vel`
 
 ### **What PathBuilder Does**
 1. Scans for input data based on the selected command:  
@@ -395,7 +394,7 @@ This is the primary workflow for turning manual driving into a structured autono
 **A:** Your log does not contain lines in the required format:
 
 ```
-[DATA],x,y,theta
+[DATA],x,y,theta,right_vel,left_vel
 ```
 
 **Fix:** Ensure your robot logger prints exactly this tag and order.
@@ -403,7 +402,7 @@ This is the primary workflow for turning manual driving into a structured autono
 Example:
 
 ```
-[12.34] [INFO] [DATA],42.1,18.7,269.6
+[12.34] [INFO] [DATA],42.1,18.7,269.6,2134
 ```
 
 Everything before `[DATA]` is ignored by the parser.
@@ -445,7 +444,7 @@ This separation from `scan_paths_batch` is intentional.
 
 **A:** `--batch` only scans `scan_paths_batch`.
 
-**Fix:** Ensure your directory is listed or use `--recent` / `--old`.
+**Fix:** Ensure your directory is listed or use `--new` / `--old`.
 
 ---
 
