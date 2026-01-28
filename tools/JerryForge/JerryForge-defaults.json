@@ -1,10 +1,10 @@
 {
     "density": 1,
-    "xy_tol": 30.5,
-    "theta_tol": 300.0,
+    "xy_tol": 3.5,
+    "theta_tol": 35.0,
 
-    "visible_xy_tol": 1000.0,
-    "visible_theta_tol": 1000.0, 
+    "visible_xy_tol": 15.0,
+    "visible_theta_tol": 35.0, 
     "vis_interval": 1000,
     
     "offset_x": 0.0,
@@ -25,6 +25,6 @@
     
     "export_viewer_json": true,
     "viewer_units": "in",
-    "viewer_thin_ms": 2508076987698769876,
+    "viewer_thin_ms": 1,
     "log_hz": 8.33
 }

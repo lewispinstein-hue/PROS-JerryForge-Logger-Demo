@@ -1,0 +1,1358 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>JerryForge Viewer (Offline)</title>
+  <style>
+    :root { --bg:#0b0f14; --panel:#101720; --text:#e7eef7; --muted:#93a4b8; --line:#233244; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--text); }
+    header { padding:10px 14px; border-bottom:1px solid var(--line); display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    header .grow { flex:1 1 auto; min-width: 180px; }
+    button, select, input[type="file"], input[type="number"] {
+      background:var(--panel); color:var(--text); border:1px solid var(--line);
+      padding:8px 10px; border-radius:10px; max-width:100%;
+    }
+    button { cursor:pointer; }
+    button:disabled { opacity:.5; cursor:not-allowed; }
+    .muted { color:var(--muted); font-size:12px; }
+
+    /* Layout: content row + bottom timeline */
+    .app {
+      height: calc(100vh - 56px);
+      display:flex;
+      flex-direction:column;
+      min-height: 0;
+    }
+    .row {
+      flex: 1 1 auto;
+      display:flex;
+      min-height:0;
+      overflow:hidden;
+    }
+    #canvasWrap { flex:1 1 auto; position:relative; overflow:hidden; min-width: 0; }
+    canvas#c { width:100%; height:100%; display:block; }
+
+    /* Sidebar: flexible width, wraps content, no horizontal scroll */
+    #right {
+      flex: 0 0 clamp(260px, 26vw, 420px);
+      border-left:1px solid var(--line);
+      background:rgba(16,23,32,.7);
+      backdrop-filter: blur(6px);
+      overflow:auto;
+      min-width: 240px;
+    }
+    #right * { min-width: 0; }
+    #right .section { padding:12px 14px; border-bottom:1px solid var(--line); }
+    .drop { border:1px dashed var(--line); border-radius:12px; padding:10px; }
+
+    details { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: rgba(16,23,32,.45); }
+    details > summary {
+      cursor: pointer;
+      padding: 10px 12px;
+      user-select: none;
+      list-style: none;
+      display:flex; align-items:center; justify-content:space-between;
+      font-weight: 750;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    details > summary::-webkit-details-marker { display:none; }
+    .detailsBody { padding: 10px 12px; border-top:1px solid var(--line); }
+
+    .pill { display:inline-block; padding:2px 8px; border-radius:999px; border:1px solid var(--line); font-size:12px; color:var(--muted); white-space:nowrap; }
+    .pill.level { border-color: transparent; color: #081018; font-weight: 800; }
+
+    .grid2 { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+    .grid3 { display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; }
+    @media (max-width: 980px) {
+      #right { flex-basis: 320px; }
+      .grid3 { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 740px) {
+      .row { flex-direction:column; }
+      #right { flex: 0 0 auto; max-height: 44vh; border-left:none; border-top:1px solid var(--line); }
+    }
+
+    label { font-size:12px; color:var(--muted); display:block; margin-bottom:4px; }
+
+    #watchList { max-height: 40vh; overflow:auto; border:1px solid var(--line); border-radius:10px; }
+    .watchItem { padding:10px 10px; border-bottom:1px solid var(--line); cursor:pointer; overflow:hidden; }
+    .watchItem:hover { background: rgba(255,255,255,.04); }
+    .watchItem:last-child { border-bottom:none; }
+    .watchItem.selected { outline: 2px solid rgba(255,255,255,0.35); outline-offset:-2px; background: rgba(255,255,255,.03); }
+    .bigValue { font-size: 15px; font-weight: 800; margin-top: 6px; word-break: break-word; }
+
+    .kvs { display:grid; grid-template-columns: 1fr auto; gap:6px 10px; font-size:13px; }
+    .kvs div:nth-child(2n) { color:var(--muted); text-align:right; }
+
+    /* Bottom timeline */
+    #timelineBar {
+      flex: 0 0 96px;
+      border-top:1px solid var(--line);
+      background: rgba(8,12,18,0.95);
+      display:flex;
+      flex-direction:column;
+      padding: 10px 12px;
+      gap: 8px;
+    }
+    #timelineTop {
+      display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    }
+    #timelineCanvas {
+      width:100%;
+      height: 54px;
+      border:1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(16,23,32,0.55);
+      display:block;
+    }
+    #timelineHint { color: var(--muted); font-size: 12px; }
+  </style>
+</head>
+<body>
+<header>
+  <input id="file" type="file" accept=".json" />
+  <button id="btnPlay" disabled>Play</button>
+  <button id="btnFit" disabled>Fit</button>
+  <span class="grow muted" id="status">Drop a viewer JSON file.</span>
+  <select id="fieldSelect" disabled>
+    <option value="">No field image</option>
+  </select>
+</header>
+
+<div class="app">
+  <div class="row">
+    <div id="canvasWrap">
+      <canvas id="c"></canvas>
+    </div>
+
+    <div id="right">
+      <div class="section">
+        <div class="drop muted">
+          Tip: drag & drop a <code>*-viewer.json</code> file anywhere on the page.
+        </div>
+      </div>
+
+      <div class="section">
+        <details open id="secGeneral">
+          <summary>
+            <span>General</span>
+            <span class="pill" id="fmt">no file</span>
+          </summary>
+          <div class="detailsBody">
+            <div style="font-weight:800" id="runName">—</div>
+            <div class="muted" id="runMeta">—</div>
+
+            <div style="margin-top:12px" class="grid2">
+              <div>
+                <label>Units (interpret input poses as)</label>
+                <select id="unitsSelect">
+                  <option value="in">inches</option>
+                  <option value="cm">centimeters</option>
+                  <option value="ft">foot</option>
+                  <option value="tiles">tiles (24 in)</option>
+                </select>
+                <div class="muted" style="margin-top:6px">
+                  Rendering uses inches internally.
+                </div>
+              </div>
+              <div>
+                <label>Robot size (inches on field)</label>
+                <div class="grid2">
+                  <input id="robotW" type="number" step="0.5" value="12" />
+                  <input id="robotH" type="number" step="0.5" value="12" />
+                </div>
+                <div class="muted" style="margin-top:6px">width / height</div>
+              </div>
+            </div>
+
+            <div style="margin-top:12px" class="grid3">
+              <div>
+                <label>offset_x</label>
+                <input id="offX" type="number" step="0.1" value="0" />
+              </div>
+              <div>
+                <label>offset_y</label>
+                <input id="offY" type="number" step="0.1" value="0" />
+              </div>
+              <div>
+                <label>offset_theta (deg)</label>
+                <input id="offTheta" type="number" step="1" value="0" />
+              </div>
+            </div>
+            <div class="muted" style="margin-top:8px">
+              Offsets move the whole path relative to the field. (No auto-fit on offset changes.)
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <div class="section">
+        <details open id="secWatches">
+          <summary>
+            <span>Watches</span>
+            <span class="pill" id="watchCount">—</span>
+          </summary>
+          <div class="detailsBody">
+            <div id="watchList"></div>
+            <div class="muted" style="margin-top:10px">
+              Click a watch to highlight it on the field and on the timeline.
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <div class="section">
+        <details id="secStats">
+          <summary>
+            <span>Stats</span>
+            <span class="pill" id="statPill">—</span>
+          </summary>
+          <div class="detailsBody">
+            <div class="grid2" style="margin-bottom:10px">
+              <div>
+                <label>Min speed (normalize)</label>
+                <input id="minSpeed" type="number" step="1" value="0" />
+              </div>
+              <div>
+                <label>Max speed (normalize)</label>
+                <input id="maxSpeed" type="number" step="1" value="127" />
+              </div>
+            </div>
+            <div class="kvs" id="stats"></div>
+          </div>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom timeline bar -->
+  <div id="timelineBar">
+    <div id="timelineTop">
+      <span class="pill" id="tLabel">t=—</span>
+      <span class="pill" id="idxLabel">i=—</span>
+      <span class="pill" id="modeLabel">mode=—</span>
+      <span class="muted" id="poseLine" style="flex:1 1 auto; min-width: 220px;">—</span>
+    </div>
+    <canvas id="timelineCanvas"></canvas>
+    <div id="timelineHint" class="muted">
+      Hover: preview robot at time • Click: set time • Watch dots are clickable
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const timelineCanvas = document.getElementById('timelineCanvas');
+  const tctx = timelineCanvas.getContext('2d');
+
+  const statusEl = document.getElementById('status');
+  const fileEl = document.getElementById('file');
+  const btnPlay = document.getElementById('btnPlay');
+  const btnFit = document.getElementById('btnFit');
+  const tLabel = document.getElementById('tLabel');
+  const idxLabel = document.getElementById('idxLabel');
+  const modeLabel = document.getElementById('modeLabel');
+  const poseLine = document.getElementById('poseLine');
+  const runName = document.getElementById('runName');
+  const runMeta = document.getElementById('runMeta');
+  const fmt = document.getElementById('fmt');
+  const statsEl = document.getElementById('stats');
+  const watchList = document.getElementById('watchList');
+  const watchCount = document.getElementById('watchCount');
+  const fieldSelect = document.getElementById('fieldSelect');
+  const statPill = document.getElementById('statPill');
+
+  const offXEl = document.getElementById('offX');
+  const offYEl = document.getElementById('offY');
+  const offThetaEl = document.getElementById('offTheta');
+  const unitsSelect = document.getElementById('unitsSelect');
+  const robotWEl = document.getElementById('robotW');
+  const robotHEl = document.getElementById('robotH');
+  const minSpeedEl = document.getElementById('minSpeed');
+  const maxSpeedEl = document.getElementById('maxSpeed');
+
+  // --- YOUR FIELD IMAGES ---
+  const FIELD_IMAGES = [
+    { key: "match_field_2025-2026_pushback.png", label: "Field: Match Field" },
+    { key: "skills_field_2025-2026_pushback.png", label: "Field: Skills Field" },
+  ];
+
+  // Field bounds in INCHES (default view when no Fit)
+  const FIELD_BOUNDS_IN = { minX: -72, maxX: 72, minY: -72, maxY: 72, pad: 30 };
+
+  const WATCH_TOL_MS = 40;
+  const HOVER_PIXEL_TOL = 14;
+
+  let data = null;
+  let rawPoses = [];    // as loaded, in file units
+  let watches = [];     // normalized watches
+  let watchMarkers = []; // {watch, t, poseInches, ok:boolean, dt:number|null}
+  let selectedWatch = null; // { marker }
+  let selectedIndex = 0;    // locked pose index for display (non-playing)
+  let hoverPose = null;     // hover on field
+  let playPose = null;      // for animation
+  let hoverTimelineTime = null; // preview time on timeline (ms)
+  let timelineHoverSavedIndex = null; // restore after hover
+  let timelineHotWatch = null;
+
+  // playback clock
+  let playing = false;
+  let raf = null;
+  let playTimeMs = null;
+  let lastWall = null;
+
+  // world->screen
+  let bounds = { ...FIELD_BOUNDS_IN };
+  let scale = 1;
+  let offsetXpx = 0;
+  let offsetYpx = 0;
+
+  // field image
+  let fieldImg = null;
+
+  // offsets: entered in selected units, stored as inches for rendering
+  const offsetsIn = { x: 0, y: 0, theta: 0 };
+
+  // units: input pose units -> inches factor
+  let unitsToInFactor = 1;
+
+  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+  function normalizeDeg(d) { let x = d % 360; if (x < 0) x += 360; return x; }
+  function angLerpDeg(a, b, t) {
+    a = normalizeDeg(a); b = normalizeDeg(b);
+    let diff = (b - a + 540) % 360 - 180;
+    return normalizeDeg(a + diff * t);
+  }
+  function fmtNum(v, d=2) { if (typeof v !== "number" || !isFinite(v)) return "—"; return v.toFixed(d); }
+  function setStatus(msg) { statusEl.textContent = msg; }
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;" }[c]));
+  }
+
+  function levelStyle(levelRaw) {
+    const L = String(levelRaw || "INFO").toUpperCase();
+    if (L.includes("ERROR") || L.includes("FATAL")) return { name:"ERROR", fill:"#ff4d4d", text:"#081018" };
+    if (L.includes("WARN")) return { name:"WARN", fill:"#ffd44d", text:"#081018" };
+    if (L.includes("DEBUG") || L.includes("TRACE")) return { name:"DEBUG", fill:"#9aa7bb", text:"#081018" };
+    return { name:"INFO", fill:"#4dff88", text:"#081018" };
+  }
+
+  function loadFieldOptions() {
+    fieldSelect.innerHTML = `<option value="">No field image</option>`;
+    for (const f of FIELD_IMAGES) {
+      const opt = document.createElement('option');
+      opt.value = f.key;
+      opt.textContent = f.label;
+      fieldSelect.appendChild(opt);
+    }
+  }
+
+  async function loadFieldImage(filename) {
+    if (!filename) { fieldImg = null; draw(); return; }
+    const img = new Image();
+    img.onload = () => { fieldImg = img; draw(); };
+    img.onerror = () => { fieldImg = null; setStatus(`Could not load field image: ${filename}`); draw(); };
+    img.src = filename;
+  }
+
+  function setUnitsFactorFromSelect(value) {
+    if (value === "cm") unitsToInFactor = 1 / 2.54;
+    else if (value === "ft") unitsToInFactor = 12;
+    else if (value === "tiles") unitsToInFactor = 24;
+    else unitsToInFactor = 1;
+  }
+
+  function inferUnitsFromMeta(metaUnits) {
+    const u = String(metaUnits || "").toLowerCase().trim();
+    if (!u) return "in";
+    if (u.includes("tile")) return "tiles";
+    if (u.includes("cm") || u.includes("cent")) return "cm";
+    if (u === "ft" || u.includes("foot") || u.includes("feet")) return "ft";
+    if (u.includes("in")) return "in";
+    return "in";
+  }
+
+  function updateOffsetsFromInputs() {
+    const ux = Number(offXEl.value || 0);
+    const uy = Number(offYEl.value || 0);
+    const ut = Number(offThetaEl.value || 0);
+
+    offsetsIn.x = ux * unitsToInFactor;
+    offsetsIn.y = uy * unitsToInFactor;
+    offsetsIn.theta = ut;
+
+    recomputeWatchMarkers();
+    draw();
+    updatePoseReadout();
+    drawTimeline();
+  }
+
+  function robotDimsInches() {
+    const w = Number(robotWEl.value || 12);
+    const h = Number(robotHEl.value || 12);
+    return { w: Math.max(1, w), h: Math.max(1, h) };
+  }
+
+  function normalizeSpeedForHeat(speedAbs) {
+    const minS = Number(minSpeedEl.value || 0);
+    const maxS = Number(maxSpeedEl.value || 127);
+    const s = clamp(speedAbs, 0, 100000);
+    if (maxS <= minS) return 0;
+    return clamp((s - minS) / (maxS - minS), 0, 1);
+  }
+
+  function heatColor(speed) {
+    const sAbs = Math.abs(speed || 0);
+    if (sAbs <= 3) return "rgba(90,0,0,0.92)";
+    const t = normalizeSpeedForHeat(sAbs);
+    const u = 1 - t; // u=0 green, u=1 red
+
+    let r,g,b;
+    if (u <= 0.33) {
+      const a = u / 0.33;
+      r = 40 + a*(255-40); g = 220; b = 80;
+    } else if (u <= 0.66) {
+      const a = (u-0.33)/0.33;
+      r = 255; g = 220 - a*(140); b = 80 - a*(40);
+    } else {
+      const a = (u-0.66)/0.34;
+      r = 255; g = 80 - a*(70); b = 40 - a*(30);
+    }
+    return `rgba(${Math.round(r)},${Math.round(g)},${Math.round(b)},0.88)`;
+  }
+
+  function poseToInches(p) {
+    return {
+      t: (typeof p.t === "number") ? p.t : null,
+      x: (p.x ?? 0) * unitsToInFactor + offsetsIn.x,
+      y: (p.y ?? 0) * unitsToInFactor + offsetsIn.y,
+      theta: normalizeDeg((p.theta ?? 0) + offsetsIn.theta),
+      l_vel: (typeof p.l_vel === "number") ? p.l_vel : null,
+      r_vel: (typeof p.r_vel === "number") ? p.r_vel : null,
+      speed: (typeof p.speed === "number") ? p.speed : null,
+    };
+  }
+
+  function getPosesInches() { return rawPoses.map(poseToInches); }
+
+  function resizeCanvas() {
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = Math.max(1, Math.floor(rect.width * dpr));
+    canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    computeTransform();
+    draw();
+  }
+
+  function resizeTimeline() {
+    const dpr = window.devicePixelRatio || 1;
+    const rect = timelineCanvas.getBoundingClientRect();
+    timelineCanvas.width = Math.max(1, Math.floor(rect.width * dpr));
+    timelineCanvas.height = Math.max(1, Math.floor(rect.height * dpr));
+    tctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    drawTimeline();
+  }
+
+  function computeTransform() {
+    const w = canvas.getBoundingClientRect().width;
+    const h = canvas.getBoundingClientRect().height;
+    const pad = bounds.pad;
+    const worldW = (bounds.maxX - bounds.minX) || 1;
+    const worldH = (bounds.maxY - bounds.minY) || 1;
+    scale = Math.min((w - pad*2) / worldW, (h - pad*2) / worldH);
+    offsetXpx = pad - bounds.minX * scale;
+    offsetYpx = pad + bounds.maxY * scale;
+  }
+
+  function worldToScreen(xIn, yIn) {
+    return { x: offsetXpx + xIn * scale, y: offsetYpx - yIn * scale };
+  }
+
+  function fitToPoses() {
+    const poses = getPosesInches();
+    if (!poses.length) return;
+    let minX = poses[0].x, maxX = poses[0].x;
+    let minY = poses[0].y, maxY = poses[0].y;
+    for (const p of poses) {
+      minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+      minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+    }
+    const margin = 6;
+    bounds.minX = minX - margin; bounds.maxX = maxX + margin;
+    bounds.minY = minY - margin; bounds.maxY = maxY + margin;
+    bounds.pad = FIELD_BOUNDS_IN.pad;
+    computeTransform();
+    draw();
+  }
+
+  // ---- time indexing ----
+  function findFloorIndexByTime(tMs) {
+    const poses = rawPoses;
+    if (!poses.length) return -1;
+    let lo = 0, hi = poses.length - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      const tm = poses[mid].t ?? -Infinity;
+      if (tm <= tMs) lo = mid + 1;
+      else hi = mid - 1;
+    }
+    return clamp(hi, 0, poses.length - 1);
+  }
+
+  function interpolatePoseAtTime(tMs) {
+    if (!rawPoses.length) return null;
+    const i = findFloorIndexByTime(tMs);
+    const p0 = rawPoses[i];
+    if (i >= rawPoses.length - 1) return poseToInches({ ...p0, t: p0.t });
+
+    const p1 = rawPoses[i+1];
+    const t0 = p0.t ?? tMs;
+    const t1 = p1.t ?? t0;
+    const denom = (t1 - t0) || 1;
+    const a = clamp((tMs - t0) / denom, 0, 1);
+
+    const x = (p0.x ?? 0) + ((p1.x ?? 0) - (p0.x ?? 0)) * a;
+    const y = (p0.y ?? 0) + ((p1.y ?? 0) - (p0.y ?? 0)) * a;
+    const theta = angLerpDeg(p0.theta ?? 0, p1.theta ?? 0, a);
+
+    const l_vel = (p0.l_vel ?? 0) + ((p1.l_vel ?? 0) - (p0.l_vel ?? 0)) * a;
+    const r_vel = (p0.r_vel ?? 0) + ((p1.r_vel ?? 0) - (p0.r_vel ?? 0)) * a;
+    const speed = (p0.speed ?? 0) + ((p1.speed ?? 0) - (p0.speed ?? 0)) * a;
+
+    return poseToInches({ t: tMs, x, y, theta, l_vel, r_vel, speed });
+  }
+
+  function nearestIndexWithinTol(tMs, tolMs) {
+    if (!rawPoses.length) return null;
+    const i0 = findFloorIndexByTime(tMs);
+    const cands = [i0, Math.min(i0+1, rawPoses.length-1)];
+    let best = null;
+    for (const i of cands) {
+      const tt = rawPoses[i].t;
+      if (typeof tt !== "number") continue;
+      const dt = Math.abs(tt - tMs);
+      if (best === null || dt < best.dt) best = { idx: i, dt };
+    }
+    if (best && best.dt <= tolMs) return best;
+    return null;
+  }
+
+  // ---- watches: normalize / robust parse ----
+  function toNumMaybe(v) {
+    if (typeof v === "number" && isFinite(v)) return v;
+    if (typeof v === "string") {
+      const n = Number(v.trim());
+      if (isFinite(n)) return n;
+    }
+    return null;
+  }
+
+  function normalizeWatches(arr) {
+    const out = [];
+    if (!Array.isArray(arr)) return out;
+
+    for (const w of arr) {
+      if (!w || typeof w !== "object") continue;
+      const tRaw = (w.t ?? w.timestamp ?? w.time ?? w.ms);
+      const t = toNumMaybe(tRaw);
+      if (t == null) continue;
+
+      out.push({
+        t,
+        level: w.level ?? w.lvl ?? w.severity ?? "INFO",
+        label: w.label ?? w.name ?? "",
+        value: (w.value ?? w.val ?? w.message ?? ""),
+      });
+    }
+    // stable sort
+    out.sort((a,b) => a.t - b.t);
+    return out;
+  }
+
+  function recomputeWatchMarkers() {
+    watchMarkers = [];
+    for (const w of watches) {
+      const t = w.t;
+      const near = nearestIndexWithinTol(t, WATCH_TOL_MS);
+      if (near) {
+        const p = rawPoses[near.idx];
+        watchMarkers.push({ watch: w, t, ok: true, dt: near.dt, pose: poseToInches(p), idx: near.idx });
+      } else {
+        const ip = interpolatePoseAtTime(t);
+        if (ip) watchMarkers.push({ watch: w, t, ok: false, dt: null, pose: ip, idx: null });
+      }
+    }
+  }
+
+  // ---- drawing ----
+  function drawField() {
+    const w = canvas.getBoundingClientRect().width;
+    const h = canvas.getBoundingClientRect().height;
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = "#0b0f14";
+    ctx.fillRect(0, 0, w, h);
+
+    if (!fieldImg) return;
+    const p0 = worldToScreen(bounds.minX, bounds.minY);
+    const p1 = worldToScreen(bounds.maxX, bounds.maxY);
+    const left = Math.min(p0.x, p1.x);
+    const top = Math.min(p0.y, p1.y);
+    const right = Math.max(p0.x, p1.x);
+    const bottom = Math.max(p0.y, p1.y);
+
+    ctx.globalAlpha = 0.95;
+    ctx.drawImage(fieldImg, left, top, right - left, bottom - top);
+    ctx.globalAlpha = 1.0;
+  }
+
+  function drawAxes() {
+    const w = canvas.getBoundingClientRect().width;
+    const h = canvas.getBoundingClientRect().height;
+    const o = worldToScreen(0, 0);
+    ctx.strokeStyle = "rgba(255,255,255,0.08)";
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, o.y); ctx.lineTo(w, o.y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(o.x, 0); ctx.lineTo(o.x, h); ctx.stroke();
+  }
+
+  function drawPath() {
+    const poses = getPosesInches();
+    if (poses.length < 2) return;
+    for (let i = 1; i < poses.length; i++) {
+      const a = poses[i-1], b = poses[i];
+      const pa = worldToScreen(a.x, a.y);
+      const pb = worldToScreen(b.x, b.y);
+      const grad = ctx.createLinearGradient(pa.x, pa.y, pb.x, pb.y);
+      grad.addColorStop(0, heatColor(a.speed ?? 0));
+      grad.addColorStop(1, heatColor(b.speed ?? 0));
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(pa.x, pa.y);
+      ctx.lineTo(pb.x, pb.y);
+      ctx.stroke();
+    }
+  }
+
+  function drawWatchDots() {
+    if (!watchMarkers.length) return;
+
+    // small dots for all watches
+    for (const m of watchMarkers) {
+      const { pose, watch } = m;
+      const st = levelStyle(watch.level);
+      const p = worldToScreen(pose.x, pose.y);
+
+      ctx.save();
+      ctx.fillStyle = st.fill.replace(")", ",0.25)").replace("rgb", "rgba");
+      ctx.strokeStyle = "rgba(255,255,255,0.95)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 4.2, 0, Math.PI*2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // selected watch highlight
+    if (selectedWatch?.marker?.pose) {
+      const st = levelStyle(selectedWatch.marker.watch.level);
+      const pose = selectedWatch.marker.pose;
+      const p = worldToScreen(pose.x, pose.y);
+
+      ctx.save();
+      ctx.strokeStyle = "rgba(255,255,255,0.95)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 9.0, 0, Math.PI*2);
+      ctx.stroke();
+
+      ctx.fillStyle = st.fill.replace(")", ",0.35)").replace("rgb", "rgba");
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 6.5, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  function drawRobot(pose, alpha=1.0) {
+    if (!pose) return;
+    const { w: wIn, h: hIn } = robotDimsInches();
+    const center = worldToScreen(pose.x, pose.y);
+    const wPx = wIn * scale;
+    const hPx = hIn * scale;
+    const thetaDeg = (pose.theta ?? 0);
+    const thetaRad = (-thetaDeg) * Math.PI / 180;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(center.x, center.y);
+    ctx.rotate(thetaRad);
+
+    ctx.fillStyle = "rgba(255,255,255,0.14)";
+    ctx.strokeStyle = "rgba(255,255,255,0.85)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.rect(-wPx/2, -hPx/2, wPx, hPx);
+    ctx.fill();
+    ctx.stroke();
+
+    // front edge indicator
+    ctx.strokeStyle = "rgba(255,255,255,0.98)";
+    ctx.beginPath();
+    ctx.moveTo(wPx/2, -hPx/2);
+    ctx.lineTo(wPx/2,  hPx/2);
+    ctx.stroke();
+
+    // heading arrow
+    const arrowLen = Math.max(wPx, hPx) * 0.85;
+    ctx.strokeStyle = "rgba(255,255,255,0.95)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(arrowLen/2, 0);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(arrowLen/2, 0);
+    ctx.lineTo(arrowLen/2 - 8, -5);
+    ctx.lineTo(arrowLen/2 - 8,  5);
+    ctx.closePath();
+    ctx.fillStyle = "rgba(255,255,255,0.95)";
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  function draw() {
+    drawField();
+    drawAxes();
+    drawPath();
+    drawWatchDots();
+
+    // field hover preview (if not timeline hover)
+    if (hoverPose && !playing && hoverTimelineTime == null) drawRobot(hoverPose, 0.85);
+
+    // timeline hover preview wins (when not playing)
+    if (!playing && hoverTimelineTime != null) {
+      const p = interpolatePoseAtTime(hoverTimelineTime);
+      if (p) drawRobot(p, 0.95);
+    }
+
+    // playing robot
+    if (playing && playPose) drawRobot(playPose, 1.0);
+
+    // locked robot when idle and not hovering timeline
+    if (!playing && hoverTimelineTime == null) {
+      const poses = getPosesInches();
+      const p = poses[selectedIndex] || null;
+      if (p) drawRobot(p, 1.0);
+    }
+  }
+
+  // ---- bottom timeline drawing ----
+  function timeRange() {
+    const t0 = rawPoses[0]?.t;
+    const tN = rawPoses[rawPoses.length-1]?.t;
+    if (typeof t0 !== "number" || typeof tN !== "number" || tN <= t0) return null;
+    return { t0, tN };
+  }
+
+  function timeToX(t) {
+    const rect = timelineCanvas.getBoundingClientRect();
+    const W = rect.width;
+    const range = timeRange();
+    if (!range) return 0;
+    const a = (t - range.t0) / (range.tN - range.t0);
+    return clamp(a, 0, 1) * W;
+  }
+
+  function xToTime(x) {
+    const rect = timelineCanvas.getBoundingClientRect();
+    const W = rect.width || 1;
+    const range = timeRange();
+    if (!range) return 0;
+    const a = clamp(x / W, 0, 1);
+    return range.t0 + a * (range.tN - range.t0);
+  }
+
+  function drawTimeline() {
+    const rect = timelineCanvas.getBoundingClientRect();
+    const W = rect.width, H = rect.height;
+    tctx.clearRect(0, 0, W, H);
+
+    // bg
+    tctx.fillStyle = "rgba(16,23,32,0.55)";
+    tctx.fillRect(0, 0, W, H);
+
+    if (!rawPoses.length) return;
+
+    const range = timeRange();
+    if (!range) return;
+
+    // grid lines
+    tctx.strokeStyle = "rgba(255,255,255,0.08)";
+    tctx.lineWidth = 1;
+    const major = 10;
+    for (let i=0; i<=major; i++) {
+      const x = (W * i) / major;
+      tctx.beginPath(); tctx.moveTo(x, 0); tctx.lineTo(x, H); tctx.stroke();
+    }
+
+    // speed trace
+    // map speed to Y (higher speed higher up)
+    const maxS = Math.max(1, Number(maxSpeedEl.value || 127));
+    const minS = Math.max(0, Number(minSpeedEl.value || 0));
+    const denom = Math.max(1, maxS - minS);
+
+    tctx.lineWidth = 2;
+    for (let i=1; i<rawPoses.length; i++) {
+      const a = rawPoses[i-1], b = rawPoses[i];
+      if (typeof a.t !== "number" || typeof b.t !== "number") continue;
+
+      const xa = timeToX(a.t);
+      const xb = timeToX(b.t);
+
+      const sa = Math.abs(a.speed ?? 0);
+      const sb = Math.abs(b.speed ?? 0);
+
+      const ya = H - 6 - ((clamp((sa - minS)/denom, 0, 1)) * (H - 12));
+      const yb = H - 6 - ((clamp((sb - minS)/denom, 0, 1)) * (H - 12));
+
+      const grad = tctx.createLinearGradient(xa, ya, xb, yb);
+      grad.addColorStop(0, heatColor(sa));
+      grad.addColorStop(1, heatColor(sb));
+
+      tctx.strokeStyle = grad;
+      tctx.beginPath();
+      tctx.moveTo(xa, ya);
+      tctx.lineTo(xb, yb);
+      tctx.stroke();
+    }
+
+    // watch dots on timeline
+    for (const m of watchMarkers) {
+      const st = levelStyle(m.watch.level);
+      const x = timeToX(m.t);
+      const y = 10; // top row
+      tctx.save();
+      tctx.fillStyle = st.fill.replace(")", ",0.25)").replace("rgb", "rgba");
+      tctx.strokeStyle = "rgba(255,255,255,0.95)";
+      tctx.lineWidth = 2;
+      tctx.beginPath();
+      tctx.arc(x, y, 4.2, 0, Math.PI*2);
+      tctx.fill();
+      tctx.stroke();
+      tctx.restore();
+    }
+
+    // selection marker
+    if (rawPoses[selectedIndex]?.t != null) {
+      const x = timeToX(rawPoses[selectedIndex].t);
+      tctx.strokeStyle = "rgba(255,255,255,0.95)";
+      tctx.lineWidth = 2;
+      tctx.beginPath();
+      tctx.moveTo(x, 0);
+      tctx.lineTo(x, H);
+      tctx.stroke();
+    }
+
+    // hovered marker
+    if (hoverTimelineTime != null) {
+      const x = timeToX(hoverTimelineTime);
+      tctx.strokeStyle = "rgba(255,255,255,0.5)";
+      tctx.lineWidth = 1.5;
+      tctx.beginPath();
+      tctx.moveTo(x, 0);
+      tctx.lineTo(x, H);
+      tctx.stroke();
+    }
+
+    // selected watch marker emphasis
+    if (selectedWatch?.marker?.t != null) {
+      const x = timeToX(selectedWatch.marker.t);
+      const y = 10;
+      tctx.save();
+      tctx.strokeStyle = "rgba(255,255,255,0.95)";
+      tctx.lineWidth = 2;
+      tctx.beginPath();
+      tctx.arc(x, y, 9.0, 0, Math.PI*2);
+      tctx.stroke();
+      tctx.restore();
+    }
+  }
+
+  function timelinePickWatchDot(mx, my) {
+    // returns marker if within radius of dot (timeline coords)
+    const rect = timelineCanvas.getBoundingClientRect();
+    const x = mx, y = my;
+    const r = 8;
+    // dots at y=10
+    for (const m of watchMarkers) {
+      const dx = x - timeToX(m.t);
+      const dy = y - 10;
+      if ((dx*dx + dy*dy) <= r*r) return m;
+    }
+    return null;
+  }
+
+  // ---- hover on field path ----
+  function updateHoverFromMouse(clientX, clientY) {
+    if (!rawPoses.length) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx = clientX - rect.left;
+    const my = clientY - rect.top;
+    const poses = getPosesInches();
+    if (poses.length < 2) return;
+
+    let best = { dist2: Infinity, i: -1, alpha: 0 };
+
+    for (let i = 0; i < poses.length - 1; i++) {
+      const a = poses[i], b = poses[i+1];
+      const pa = worldToScreen(a.x, a.y);
+      const pb = worldToScreen(b.x, b.y);
+
+      const vx = pb.x - pa.x, vy = pb.y - pa.y;
+      const wx = mx - pa.x, wy = my - pa.y;
+      const vv = vx*vx + vy*vy || 1;
+      let alpha = (wx*vx + wy*vy) / vv;
+      alpha = clamp(alpha, 0, 1);
+
+      const px = pa.x + alpha*vx;
+      const py = pa.y + alpha*vy;
+      const dx = mx - px, dy = my - py;
+      const d2 = dx*dx + dy*dy;
+
+      if (d2 < best.dist2) best = { dist2: d2, i, alpha };
+    }
+
+    const dist = Math.sqrt(best.dist2);
+    if (dist > HOVER_PIXEL_TOL) {
+      if (hoverPose) { hoverPose = null; updatePoseReadout(); draw(); }
+      return;
+    }
+
+    const i0 = best.i, i1 = best.i + 1;
+    const p0 = poses[i0], p1 = poses[i1];
+    const a = best.alpha;
+
+    hoverPose = {
+      t: null,
+      x: p0.x + (p1.x - p0.x) * a,
+      y: p0.y + (p1.y - p0.y) * a,
+      theta: angLerpDeg(p0.theta ?? 0, p1.theta ?? 0, a),
+      l_vel: (p0.l_vel ?? 0) + ((p1.l_vel ?? 0) - (p0.l_vel ?? 0)) * a,
+      r_vel: (p0.r_vel ?? 0) + ((p1.r_vel ?? 0) - (p0.r_vel ?? 0)) * a,
+      speed: (p0.speed ?? 0) + ((p1.speed ?? 0) - (p0.speed ?? 0)) * a,
+    };
+
+    updatePoseReadout();
+    draw();
+  }
+
+  // ---- watch list ----
+  function renderWatchList() {
+    watchList.innerHTML = "";
+    watchCount.textContent = `${watchMarkers.length}`;
+
+    for (let i=0; i<watchMarkers.length; i++) {
+      const m = watchMarkers[i];
+      const w = m.watch;
+      const st = levelStyle(w.level);
+      const label = w.label || "";
+      const value = w.value ?? "";
+      const t = m.t;
+
+      const div = document.createElement("div");
+      div.className = "watchItem";
+      div.dataset.t = String(t);
+
+      div.innerHTML = `
+        <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <span class="pill level" style="background:${st.fill};color:${st.text}">${escapeHtml(st.name)}</span>
+            <span style="font-weight:850;word-break:break-word">${escapeHtml(label)}</span>
+          </div>
+          <div class="muted">${t != null ? (t + "ms") : ""}</div>
+        </div>
+        <div class="bigValue">${escapeHtml(String(value))}</div>
+      `;
+
+      div.onclick = () => selectWatchMarker(m, true);
+      watchList.appendChild(div);
+    }
+
+    // re-apply selected highlight
+    if (selectedWatch?.marker?.t != null) highlightWatchInList(selectedWatch.marker.t);
+  }
+
+  function highlightWatchInList(tMs) {
+    const items = watchList.querySelectorAll(".watchItem");
+    items.forEach(el => el.classList.remove("selected"));
+    const el = watchList.querySelector(`.watchItem[data-t="${CSS.escape(String(tMs))}"]`);
+    if (el) {
+      el.classList.add("selected");
+      // scroll into view
+      el.scrollIntoView({ block: "nearest" });
+    }
+  }
+
+  function selectWatchMarker(marker, fromUserClick=false) {
+    selectedWatch = { marker };
+    timelineHotWatch = marker;
+
+    // lock time near this watch
+    const near = nearestIndexWithinTol(marker.t, WATCH_TOL_MS);
+    if (near) {
+      selectedIndex = near.idx;
+      setStatus(`Watch @${marker.t}ms mapped to pose @${rawPoses[near.idx].t}ms (Δ=${near.dt}ms).`);
+    } else {
+      // lock to closest floor time
+      selectedIndex = findFloorIndexByTime(marker.t);
+      setStatus(`Watch @${marker.t}ms shown via interpolation (no pose within ±${WATCH_TOL_MS}ms).`);
+    }
+
+    pause();
+    hoverPose = null;
+    hoverTimelineTime = null;
+    timelineHoverSavedIndex = null;
+
+    highlightWatchInList(marker.t);
+    updatePoseReadout();
+    draw();
+    drawTimeline();
+  }
+
+  // ---- playback ----
+  function pause() {
+    playing = false;
+    btnPlay.textContent = "Play";
+    if (raf) cancelAnimationFrame(raf);
+    raf = null;
+    playPose = null;
+    lastWall = null;
+  }
+
+  function play() {
+    if (!rawPoses.length) return;
+    const tStart = rawPoses[selectedIndex]?.t;
+    playTimeMs = (typeof tStart === "number") ? tStart : (rawPoses[0]?.t ?? 0);
+    playing = true;
+    btnPlay.textContent = "Pause";
+    lastWall = performance.now();
+
+    const tick = (now) => {
+      if (!playing) return;
+      const dtWall = now - lastWall;
+      lastWall = now;
+      playTimeMs += dtWall;
+
+      const tMin = rawPoses[0]?.t ?? 0;
+      const tMax = rawPoses[rawPoses.length - 1]?.t ?? tMin;
+
+      if (playTimeMs >= tMax) {
+        playTimeMs = tMax;
+        playPose = interpolatePoseAtTime(playTimeMs);
+        selectedIndex = rawPoses.length - 1;
+        updatePoseReadout();
+        draw();
+        drawTimeline();
+        pause();
+        return;
+      }
+
+      playPose = interpolatePoseAtTime(playTimeMs);
+      selectedIndex = findFloorIndexByTime(playTimeMs);
+
+      selectedWatch = null;
+      updatePoseReadout();
+      draw();
+      drawTimeline();
+      raf = requestAnimationFrame(tick);
+    };
+
+    raf = requestAnimationFrame(tick);
+  }
+
+  // ---- readout ----
+  function updatePoseReadout() {
+    if (!data || !rawPoses.length) {
+      modeLabel.textContent = "mode=—";
+      tLabel.textContent = "t=—";
+      idxLabel.textContent = "i=—";
+      poseLine.textContent = "—";
+      return;
+    }
+
+    if (playing) {
+      modeLabel.textContent = "mode=play";
+      tLabel.textContent = (playTimeMs != null) ? `t=${Math.round(playTimeMs)}ms` : "t=—";
+      idxLabel.textContent = `i≈${selectedIndex}/${rawPoses.length-1}`;
+      const p = playPose;
+      poseLine.textContent = p
+        ? `x=${fmtNum(p.x)}in  y=${fmtNum(p.y)}in  θ=${fmtNum(p.theta)}°  speed=${fmtNum(p.speed,1)}`
+        : "—";
+      return;
+    }
+
+    if (hoverTimelineTime != null) {
+      modeLabel.textContent = "mode=timeline-hover";
+      tLabel.textContent = `t=${Math.round(hoverTimelineTime)}ms`;
+      const idx = findFloorIndexByTime(hoverTimelineTime);
+      idxLabel.textContent = `i≈${idx}/${rawPoses.length-1}`;
+      const p = interpolatePoseAtTime(hoverTimelineTime);
+      poseLine.textContent = p
+        ? `x=${fmtNum(p.x)}in  y=${fmtNum(p.y)}in  θ=${fmtNum(p.theta)}°  speed=${fmtNum(p.speed,1)}`
+        : "—";
+      return;
+    }
+
+    if (hoverPose) {
+      modeLabel.textContent = "mode=field-hover";
+      tLabel.textContent = "t=—";
+      idxLabel.textContent = "i≈—";
+      poseLine.textContent =
+        `x=${fmtNum(hoverPose.x)}in  y=${fmtNum(hoverPose.y)}in  θ=${fmtNum(hoverPose.theta)}°  speed=${fmtNum(hoverPose.speed,1)}`;
+      return;
+    }
+
+    modeLabel.textContent = "mode=locked";
+    const p = getPosesInches()[selectedIndex] || null;
+    const t = rawPoses[selectedIndex]?.t;
+    tLabel.textContent = (typeof t === "number") ? `t=${t}ms` : "t=—";
+    idxLabel.textContent = `i=${selectedIndex}/${rawPoses.length-1}`;
+    poseLine.textContent = p
+      ? `x=${fmtNum(p.x)}in  y=${fmtNum(p.y)}in  θ=${fmtNum(p.theta)}°  speed=${fmtNum(p.speed,1)}`
+      : "—";
+  }
+
+  // ---- data loading ----
+  function setData(obj) {
+    data = obj;
+    if (!obj || !Array.isArray(obj.poses)) {
+      setStatus("Invalid viewer JSON: missing poses[]");
+      return;
+    }
+
+    rawPoses = obj.poses
+      .filter(p => p && typeof p.x === "number" && typeof p.y === "number")
+      .map(p => ({
+        t: (typeof p.t === "number") ? p.t : (toNumMaybe(p.t) ?? null),
+        x: p.x, y: p.y,
+        theta: (typeof p.theta === "number") ? p.theta : (toNumMaybe(p.theta) ?? 0),
+        l_vel: (typeof p.l_vel === "number") ? p.l_vel : (toNumMaybe(p.l_vel) ?? null),
+        r_vel: (typeof p.r_vel === "number") ? p.r_vel : (toNumMaybe(p.r_vel) ?? null),
+        speed: (typeof p.speed === "number") ? p.speed : (toNumMaybe(p.speed) ?? null),
+      }))
+      .sort((a,b) => (a.t ?? 0) - (b.t ?? 0));
+
+    watches = normalizeWatches(obj.watches);
+
+    const inferred = inferUnitsFromMeta(obj?.meta?.units);
+    unitsSelect.value = inferred;
+    setUnitsFactorFromSelect(inferred);
+
+    const rw = obj?.meta?.robot?.width;
+    const rh = obj?.meta?.robot?.height;
+    robotWEl.value = (typeof rw === "number" && isFinite(rw)) ? String(rw) : "12";
+    robotHEl.value = (typeof rh === "number" && isFinite(rh)) ? String(rh) : "12";
+
+    offXEl.value = "0";
+    offYEl.value = "0";
+    offThetaEl.value = "0";
+    updateOffsetsFromInputs();
+
+    fmt.textContent = `${obj.format || "unknown"} v${obj.version ?? "?"}`;
+    runName.textContent = obj?.meta?.run_name || "—";
+    runMeta.textContent = `${obj?.meta?.coord_system || "—"} • log_hz=${obj?.meta?.log_hz ?? "—"} • meta.units=${obj?.meta?.units ?? "—"}`;
+
+    selectedWatch = null;
+    selectedIndex = 0;
+    hoverPose = null;
+    hoverTimelineTime = null;
+    timelineHoverSavedIndex = null;
+    pause();
+
+    recomputeWatchMarkers();
+    renderWatchList();
+
+    const th = obj.thinning || {};
+    const t0 = rawPoses[0]?.t;
+    const tN = rawPoses[rawPoses.length-1]?.t;
+    const rows = [
+      ["poses(file)", rawPoses.length],
+      ["watches(file)", watches.length],
+      ["watches(mapped)", watchMarkers.length],
+      ["file raw est", th.raw ?? "—"],
+      ["file kept", th.kept ?? "—"],
+      ["file removed", th.removed ?? "—"],
+      ["viewer_thin_ms", th.viewer_thin_ms ?? "—"],
+      ["t range", (typeof t0==="number" && typeof tN==="number") ? `${t0}…${tN} ms` : "—"],
+    ];
+    statsEl.innerHTML = "";
+    for (const [k, v] of rows) {
+      const a = document.createElement("div"); a.textContent = k;
+      const b = document.createElement("div"); b.textContent = String(v);
+      statsEl.appendChild(a); statsEl.appendChild(b);
+    }
+    statPill.textContent = `${rawPoses.length} poses`;
+
+    bounds = { ...FIELD_BOUNDS_IN };
+    computeTransform();
+
+    setStatus(`Loaded ${rawPoses.length} poses, ${watches.length} watches.`);
+    updatePoseReadout();
+    draw();
+    drawTimeline();
+
+    btnPlay.disabled = rawPoses.length < 2;
+    btnFit.disabled = rawPoses.length < 2;
+    fieldSelect.disabled = false;
+  }
+
+  async function handleFile(file) {
+    try {
+      const text = await file.text();
+      const obj = JSON.parse(text);
+      setData(obj);
+    } catch (e) {
+      console.error(e);
+      setStatus(`Failed to load: ${e?.message || e}`);
+    }
+  }
+
+  // ---- timeline interactions (hover preview + click lock + watch clicks) ----
+  function timelineMousePos(e) {
+    const rect = timelineCanvas.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }
+
+  timelineCanvas.addEventListener("mousemove", (e) => {
+    if (!data || playing || !rawPoses.length) return;
+
+    const { x, y } = timelineMousePos(e);
+
+    // if hovering a watch dot, we could change cursor
+    const hit = timelinePickWatchDot(x, y);
+    timelineCanvas.style.cursor = hit ? "pointer" : "crosshair";
+
+    if (timelineHoverSavedIndex == null) timelineHoverSavedIndex = selectedIndex;
+
+    hoverTimelineTime = xToTime(x);
+    updatePoseReadout();
+    draw();
+    drawTimeline();
+  });
+
+  timelineCanvas.addEventListener("mouseleave", () => {
+    if (!data || playing) return;
+    hoverTimelineTime = null;
+    timelineCanvas.style.cursor = "default";
+    if (timelineHoverSavedIndex != null) {
+      // restore robot to where it was before hover
+      selectedIndex = timelineHoverSavedIndex;
+      timelineHoverSavedIndex = null;
+    }
+    updatePoseReadout();
+    draw();
+    drawTimeline();
+  });
+
+  timelineCanvas.addEventListener("mousedown", (e) => {
+    if (!data || playing || !rawPoses.length) return;
+    const { x, y } = timelineMousePos(e);
+
+    // prefer watch-dot click if hit
+    const hit = timelinePickWatchDot(x, y);
+    if (hit) {
+      selectWatchMarker(hit, true);
+      return;
+    }
+
+    // lock time at cursor
+    const t = xToTime(x);
+    selectedIndex = findFloorIndexByTime(t);
+    hoverTimelineTime = null;
+    timelineHoverSavedIndex = null;
+    selectedWatch = null;
+
+    updatePoseReadout();
+    draw();
+    drawTimeline();
+  });
+
+  // ---- field hover ----
+  canvas.addEventListener('mousemove', (e) => {
+    if (playing || hoverTimelineTime != null) return;
+    updateHoverFromMouse(e.clientX, e.clientY);
+  });
+  canvas.addEventListener('mouseleave', () => {
+    if (hoverPose) { hoverPose = null; updatePoseReadout(); draw(); }
+  });
+
+  // ---- controls ----
+  window.addEventListener('resize', () => { resizeCanvas(); resizeTimeline(); });
+
+  fileEl.addEventListener('change', (e) => {
+    const file = e.target.files?.[0];
+    if (file) handleFile(file);
+  });
+
+  document.addEventListener('dragover', (e) => { e.preventDefault(); });
+  document.addEventListener('drop', (e) => {
+    e.preventDefault();
+    const file = e.dataTransfer?.files?.[0];
+    if (file) handleFile(file);
+  });
+
+  btnPlay.addEventListener('click', () => {
+    if (!data) return;
+    if (playing) { pause(); updatePoseReadout(); draw(); drawTimeline(); }
+    else play();
+  });
+
+  btnFit.addEventListener('click', () => {
+    fitToPoses();
+  });
+
+  fieldSelect.addEventListener('change', (e) => {
+    loadFieldImage(e.target.value);
+  });
+
+  unitsSelect.addEventListener('change', (e) => {
+    setUnitsFactorFromSelect(e.target.value);
+    updateOffsetsFromInputs();
+    drawTimeline();
+  });
+
+  robotWEl.addEventListener('input', () => { draw(); });
+  robotHEl.addEventListener('input', () => { draw(); });
+
+  minSpeedEl.addEventListener('input', () => { draw(); drawTimeline(); });
+  maxSpeedEl.addEventListener('input', () => { draw(); drawTimeline(); });
+
+  offXEl.addEventListener('input', updateOffsetsFromInputs);
+  offYEl.addEventListener('input', updateOffsetsFromInputs);
+  offThetaEl.addEventListener('input', updateOffsetsFromInputs);
+
+  document.addEventListener('keydown', (e) => {
+    if (!data) return;
+    if (e.code === "Space") { e.preventDefault(); playing ? (pause(), updatePoseReadout(), draw(), drawTimeline()) : play(); }
+    if (e.code === "ArrowLeft") { e.preventDefault(); pause(); selectedWatch=null; selectedIndex = Math.max(0, selectedIndex-1); updatePoseReadout(); draw(); drawTimeline(); }
+    if (e.code === "ArrowRight") { e.preventDefault(); pause(); selectedWatch=null; selectedIndex = Math.min(rawPoses.length-1, selectedIndex+1); updatePoseReadout(); draw(); drawTimeline(); }
+  });
+
+  // ---- init ----
+  loadFieldOptions();
+  resizeCanvas();
+  resizeTimeline();
+})();
+</script>
+</body>
+</html>

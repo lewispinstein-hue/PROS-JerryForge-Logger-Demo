@@ -235,7 +235,7 @@ def process_watch_data(lines: List[str]) -> List[Dict[str, Any]]:
         events.append({
             "time": int(t),
             "level": parts[1],
-            "label": parts[2],
+            "label": parts[2].rstrip(":"),
             "value": parts[3].strip()
         })
     return events
@@ -291,6 +291,9 @@ def thin_points_viewer(points: List[Dict[str, Any]], params: Dict[str, Any]) -> 
 
     viewer_thin_ms = int(params.get("viewer_thin_ms", 20))
 
+    if viewer_thin_ms < 0:
+        viewer_thin_ms = sys.maxsize
+
     kept = [points[0]]
     removed = 0
     last = points[0]
@@ -300,10 +303,10 @@ def thin_points_viewer(points: List[Dict[str, Any]], params: Dict[str, Any]) -> 
         if p.get("t") is not None and last.get("t") is not None:
             dt_ok = (p["t"] - last["t"]) >= viewer_thin_ms
 
-        moved = math.hypot(p["x"] - last["x"], p["y"] - last["y"]) >= params["xy_tol"]
-        turned = get_angular_diff(p["theta"], last["theta"]) >= params["theta_tol"]
+        moved = math.hypot(p["x"] - last["x"], p["y"] - last["y"]) >= params.get("xy_tol")
+        turned = get_angular_diff(p["theta"], last["theta"]) >= params.get("theta_tol")
 
-        if dt_ok or moved or turned:
+        if   moved or turned:
             kept.append(p)
             last = p
         else:
