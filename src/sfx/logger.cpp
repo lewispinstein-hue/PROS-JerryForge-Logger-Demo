@@ -495,9 +495,9 @@ void Logger::printWatches() {
     if (config_.outputForJerryio.load()) {
       // Add watch tag and add comma separator 
       finalOutput = std::string("[WATCH],") +
-                    std::to_string(nowMs) +
-                    levelToString_(lvl) + 
-                    "," + label + "," + valueStr;
+                    std::to_string(nowMs) + 
+                    "," + levelToString_(lvl) 
+                    +  "," + label + "," + valueStr;
     } else 
       finalOutput = label + " " + valueStr;
 
@@ -631,7 +631,8 @@ void Logger::Update() {
 
       while (true) {
         float normalizedTheta = fmod(pChassis_->getPose().theta, 360.0);
-
+        if (normalizedTheta < 0) normalizedTheta += 360.0;
+        
         LOG_INFO("[DATA],%d,%.2f,%.2f,%.2f,%.1f,%.1f", 
                  pros::millis(),
                  pChassis_->getPose().x,

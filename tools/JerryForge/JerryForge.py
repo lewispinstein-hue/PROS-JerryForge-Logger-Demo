@@ -5,7 +5,7 @@ from typing import List, Dict, Optional, Tuple, Any
 # ==========================================
 # CONFIGURATION
 # ==========================================
-DEFAULT_CONFIG_FILE = "jerry_plotter-defaults.json"
+DEFAULT_CONFIG_FILE = "JerryForge-defaults.json"
 COORD_TOLERANCE = 0.5  # matching tolerance for reverse casting (units)
 
 def load_config(file_path: str = DEFAULT_CONFIG_FILE) -> Dict[str, Any]:
@@ -215,31 +215,29 @@ def process_log_data(lines: List[str], params: Dict[str, Any]) -> List[Dict[str,
     return points
 
 def process_watch_data(lines: List[str]) -> List[Dict[str, Any]]:
-    """
-    WATCH format:
-      [WATCH],timestamp_ms,LEVEL,label,value
-    We keep label/value as strings. Extra commas in value are preserved by joining.
-    """
-    events: List[Dict[str, Any]] = []
+    events = []
     for line in lines:
-        if "[WATCH]" in line.upper():
-            try:
-                raw = line.split("[WATCH]", 1)[1].strip()
-                parts = [p.strip() for p in raw.split(",")]
+        u = line.upper()
+        marker = "[WATCH],"
+        idx = u.find(marker)
+        if idx < 0:
+            continue
 
-                if len(parts) < 4:
-                    continue
+        raw = line[idx + len(marker):].strip()
+        parts = [p.strip() for p in raw.split(",", 3)]
+        if len(parts) < 4:
+            continue
 
-                t = _try_int(parts[0])
-                if t is None:
-                    continue
+        t = _try_int(parts[0])
+        if t is None:
+            continue
 
-                level = parts[1]
-                label = parts[2]
-                value = ",".join(parts[3:]).strip()  # preserve commas
-                events.append({"t": int(t), "level": level, "label": label, "value": value})
-            except Exception as e:
-                print(f"Error parsing WATCH line: {e}")
+        events.append({
+            "time": int(t),
+            "level": parts[1],
+            "label": parts[2],
+            "value": parts[3].strip()
+        })
     return events
 
 def apply_range(points: List[Dict[str, Any]], r: Optional[str]) -> List[Dict[str, Any]]:
@@ -315,7 +313,6 @@ def thin_points_viewer(points: List[Dict[str, Any]], params: Dict[str, Any]) -> 
     return kept, removed
 
 def create_jerryio_json(all_points: List[Dict[str, Any]], name: str, params: Dict[str, Any]):
-    # DO NOT CHANGE: per user request, jerryio JSON creation remains identical.
     if not all_points:
         return None, None, None, 0, 0, 0
 
@@ -443,14 +440,12 @@ def write_viewer_json(path: str, input_name: str, poses: List[Dict[str, Any]], w
 
     meta = {
         "run_name": input_name,
-        "units": params.get("viewer_units", "in"),
-        "coord_system": "VEX GPS",
-        "robot": {"width": params.get("robot_width", 12), "height": params.get("robot_height", 12)},
-        "log_hz": int(params.get("log_hz", 100)),
+        "units": params.get("viewer_units"),
+        "robot": {"width": params.get("robot_width", 16), "height": params.get("robot_height", 16)},
+        "log_hz": int(params.get("log_hz", 100))
     }
 
     out = {
-        "format": "jerryforge.viewer",
         "version": 1,
         "meta": meta,
         "thinning": {
@@ -563,7 +558,7 @@ def run_processor(
             optimal_dist += seg_opt
 
     if verbose:
-        print("----------| VERBOSE |----------")
+        print("\n----------| VERBOSE |----------")
         print(f"Path name: {path_name or input_name}")
         print(f"Input file: {os.path.abspath(input_name)}")
         print(f"Output file: {os.path.abspath(out_file)}")
@@ -593,17 +588,19 @@ def run_processor(
             print(f"Fidelity Loss: {max(0, fidelity):.2f}%")
         else:
             print("Fidelity Loss: 0.00%")
-
-        print("\n--- Thinning Stats (JerryIO) ---")
-        print(f"Raw DATA points: {raw_count}")
-        print(f"Points Removed (Thinning): {removed}")
-        print(f"Final Waypoints: {final_wp}")
-        print(f"Visible Waypoints: {visible}")
+        if not bool(params.get("export_viewer_json", False)):
+            print("\n--- Thinning Stats ---")
+            print(f"Raw DATA points: {raw_count}")
+            print(f"Points Removed (Thinning): {removed}")
+            print(f"Final Waypoints: {final_wp}")
+            print(f"Visible Waypoints: {visible}")
 
         if bool(params.get("export_viewer_json", False)):
             print("\n--- Viewer Stats ---")
+            print(f"Raw DATA points: {raw_count}")
+            print(f"Points removed: {viewer_removed}")
+            print(f"Final Waypoints: {len(viewer_points)}")
             print(f"Watches parsed: {len(watches)}")
-            print(f"Viewer output enabled: True")
 
         print("--------------------------------\n")
     else:
