@@ -525,18 +525,21 @@
   const minSpeedEl = document.getElementById('minSpeed');
   const maxSpeedEl = document.getElementById('maxSpeed');
 
-  // --- YOUR FIELD IMAGES ---
+  // --- FIELD IMAGES ---
   const FIELD_IMAGES = [
     { key: "./assets/match_field_2025-2026_pushback.png", label: "Field: Match Field" },
     { key: "./assets/skills_field_2025-2026_pushback.png", label: "Field: Skills Field" },
   ];
 
+  // Default field image
+  const DEFAULT_FIELD_KEY = FIELD_IMAGES[0].key;
+
   // Field bounds in INCHES (default view when no Fit)
   const FIELD_BOUNDS_IN = { minX: -72, maxX: 72, minY: -72, maxY: 72, pad: 30 };
 
-  const WATCH_TOL_MS = 40;
+  const WATCH_TOL_MS = 40; // Controls the ± time that determines which pose a watch attaches to
   const HOVER_PIXEL_TOL = 14;
-  const COLLAPSE_PX = 36;
+  const COLLAPSE_PX = 60; // When the sidebar / timeline collapses away
 
   let data = null;
 
@@ -610,7 +613,7 @@
     const L = String(levelRaw || "INFO").toUpperCase();
     if (L.includes("ERROR") || L.includes("FATAL")) return { name:"ERROR", fill:"rgb(255,77,77)", text:"#081018" };
     if (L.includes("WARN")) return { name:"WARN", fill:"rgb(255,212,77)", text:"#081018" };
-    if (L.includes("DEBUG") || L.includes("TRACE")) return { name:"DEBUG", fill:"rgb(154,167,187)", text:"#081018" };
+    if (L.includes("DEBUG")) return { name:"DEBUG", fill:"rgb(154,167,187)", text:"#081018" };
     return { name:"INFO", fill:"rgb(77,255,136)", text:"#081018" };
   }
 
@@ -673,7 +676,7 @@
   }
 
   function heatColorFromNorm(n) {
-    // n=0 -> red-ish, n=1 -> green-ish (keeps your existing vibe)
+    // n=0 -> red-ish, n=1 -> green-ish
     const t = clamp(n, 0, 1);
     const u = 1 - t; // u=1 red, u=0 green
 
@@ -773,6 +776,18 @@
     img.onload = () => { fieldImg = img; draw(); };
     img.onerror = () => { fieldImg = null; setStatus(`Could not load field image: ${filename}`); draw(); };
     img.src = filename;
+  }
+
+  function drawFirstField() {
+    loadFieldOptions();
+
+    // Set the default selection and trigger the load
+    const defaultField = FIELD_IMAGES.find(f => f.key === DEFAULT_FIELD_KEY);
+    
+    if (defaultField) {
+      fieldSelect.value = defaultField.key; 
+      loadFieldImage(defaultField.key); 
+    }
   }
 
   // -------- time helpers --------
@@ -1078,7 +1093,7 @@
       const p = rawPoses[i];
       const t = (typeof p.t === "number") ? Math.round(p.t) : "—";
       const pi = poseToInches(p);
-      const poseSummary = `x=${(pi.x ?? 0).toFixed(1)}in, y=${(pi.y ?? 0).toFixed(1)}in, θ=${(pi.theta ?? 0).toFixed(1)}°`;
+      const poseSummary = `X: ${(pi.x ?? 0).toFixed(1)}in, Y: ${(pi.y ?? 0).toFixed(1)}in, θ: ${(pi.theta ?? 0).toFixed(1)}°`;
       const div = document.createElement('div');
       div.className = 'poseItem';
       div.dataset.idx = String(i);
@@ -1957,7 +1972,7 @@
 
     fmt.textContent = `${obj.format || "unknown"} v${obj.version ?? "?"}`;
     runName.textContent = obj?.meta?.run_name || "—";
-    runMeta.textContent = `${obj?.meta?.coord_system || "—"} • log_hz=${obj?.meta?.log_hz ?? "—"} • meta.units=${obj?.meta?.units ?? "—"}`;
+    runMeta.textContent = `${obj?.meta?.coord_system || "—"} • Log Hz=${obj?.meta?.log_hz ?? "—"}`;
 
     selectedWatch = null;
     selectedIndex = 0;
@@ -2141,6 +2156,7 @@
   window.addEventListener('resize', () => { resizeCanvas(); resizeTimeline(); });
   resizeCanvas();
   resizeTimeline();
+  drawFirstField();
 })();
 </script>
 <div id="watchPopup" hidden></div>
