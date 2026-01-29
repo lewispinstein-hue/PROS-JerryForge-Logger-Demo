@@ -109,17 +109,126 @@
       display:block;
     }
     #timelineHint { color: var(--muted); font-size: 12px; }
-  </style>
+  
+  :root{
+    --sidebarW: 360px;
+    --timelineH: 260px;
+    --toolbarH: 54px;
+  }
+  header.toolbar{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:10px 12px;
+    border-bottom:1px solid rgba(255,255,255,0.08);
+    background: linear-gradient(180deg, rgba(8,14,22,0.92), rgba(8,14,22,0.80));
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    height: var(--toolbarH);
+    box-sizing: border-box;
+  }
+  .iconBtn{
+    height: 34px;
+    min-width: 38px;
+    padding: 0 10px;
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.04);
+    color: #e9eef7;
+    font-size: 16px;
+    cursor: pointer;
+  }
+  .iconBtn:disabled{ opacity:0.4; cursor:not-allowed; }
+  .chip{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:6px 10px;
+    border-radius: 14px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.03);
+    height: 34px;
+    box-sizing: border-box;
+  }
+  .chip select{
+    background: rgba(0,0,0,0.25);
+    border: 1px solid rgba(255,255,255,0.12);
+    color: inherit;
+    border-radius: 10px;
+    padding: 4px 8px;
+    height: 24px;
+  }
+  .rowline{ display:flex; align-items:center; gap:10px; }
+  .divider{ height:1px; background: rgba(255,255,255,0.10); }
+
+  /* App layout with resizable sidebar + resizable timeline */
+  .app{
+    height: calc(100vh - var(--toolbarH));
+    display: grid;
+    grid-template-rows: 1fr 8px var(--timelineH);
+    overflow: hidden;
+  }
+  .row{
+    display: grid;
+    grid-template-columns: 1fr 8px var(--sidebarW);
+    overflow: hidden;
+    min-height: 0;
+  }
+  #canvasWrap{ min-width:0; min-height:0; }
+  #right{ min-width: 240px; overflow:auto; }
+  .splitterV{
+    cursor: col-resize;
+    background: rgba(255,255,255,0.06);
+    border-left: 1px solid rgba(255,255,255,0.08);
+    border-right: 1px solid rgba(255,255,255,0.08);
+  }
+  .splitterV:hover{ background: rgba(255,255,255,0.10); }
+  .splitterH{
+    cursor: row-resize;
+    background: rgba(255,255,255,0.06);
+    border-top: 1px solid rgba(255,255,255,0.08);
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .splitterH:hover{ background: rgba(255,255,255,0.10); }
+
+  /* Timeline bar should never clip its contents */
+  #timelineBar{
+    height: var(--timelineH);
+    min-height: 140px;
+    overflow: hidden;
+    display:flex;
+    flex-direction:column;
+  }
+  #timelineCanvas{ flex: 1 1 auto; min-height: 0; }
+  #timelineHint{ padding-bottom: 8px; }
+</style>
 </head>
 <body>
-<header>
-  <input id="file" type="file" accept=".json" />
-  <button id="btnPlay" disabled>Play</button>
-  <button id="btnFit" disabled>Fit</button>
+<header class="toolbar">
+  <input id="file" type="file" accept=".json" style="display:none" />
+  <button id="btnFile" class="iconBtn" title="Open JSON">📄</button>
+  <button id="btnPlay" class="iconBtn" title="Play/Pause" disabled>▶</button>
+  <div class="chip">
+    <span class="muted">Speed</span>
+    <select id="speedSelect" title="Playback speed">
+      <option value="0.25">0.25×</option>
+      <option value="0.5">0.5×</option>
+      <option value="1" selected>1×</option>
+      <option value="2">2×</option>
+      <option value="4">4×</option>
+    </select>
+  </div>
+  <button id="btnFit" class="iconBtn" title="Fit to path" disabled>⤢</button>
+
+  <div class="chip">
+    <span class="muted">Field</span>
+    <select id="fieldSelect" title="Field image">
+      <option value="">No field image</option>
+    </select>
+  </div>
+
   <span class="grow muted" id="status">Drop a viewer JSON file.</span>
-  <select id="fieldSelect" disabled>
-    <option value="">No field image</option>
-  </select>
 </header>
 
 <div class="app">
@@ -127,6 +236,8 @@
     <div id="canvasWrap">
       <canvas id="c"></canvas>
     </div>
+
+    <div id="vSplit" class="splitterV" title="Drag to resize"></div>
 
     <div id="right">
       <div class="section">
@@ -138,7 +249,7 @@
       <div class="section">
         <details open id="secGeneral">
           <summary>
-            <span>General</span>
+            <span>Config</span>
             <span class="pill" id="fmt">no file</span>
           </summary>
           <div class="detailsBody">
@@ -170,47 +281,25 @@
 
             <div style="margin-top:12px" class="grid3">
               <div>
-                <label>offset_x</label>
+                <label>X Offset</label>
                 <input id="offX" type="number" step="0.1" value="0" />
               </div>
               <div>
-                <label>offset_y</label>
+                <label>Y Offset</label>
                 <input id="offY" type="number" step="0.1" value="0" />
               </div>
               <div>
-                <label>offset_theta (deg)</label>
+                <label>Theta Offset (deg)</label>
                 <input id="offTheta" type="number" step="1" value="0" />
               </div>
             </div>
             <div class="muted" style="margin-top:8px">
               Offsets move the whole path relative to the field. (No auto-fit on offset changes.)
             </div>
-          </div>
-        </details>
-      </div>
 
-      <div class="section">
-        <details open id="secWatches">
-          <summary>
-            <span>Watches</span>
-            <span class="pill" id="watchCount">—</span>
-          </summary>
-          <div class="detailsBody">
-            <div id="watchList"></div>
-            <div class="muted" style="margin-top:10px">
-              Click a watch to highlight it on the field and on the timeline.
-            </div>
-          </div>
-        </details>
-      </div>
-
-      <div class="section">
-        <details id="secStats">
-          <summary>
-            <span>Stats</span>
-            <span class="pill" id="statPill">—</span>
-          </summary>
-          <div class="detailsBody">
+            <div class="divider" style="margin:14px 0;"></div>
+            <div style="font-weight:800; margin-bottom:6px">Stats</div>
+            
             <div class="grid2" style="margin-bottom:10px">
               <div>
                 <label>Min speed (normalize)</label>
@@ -222,19 +311,48 @@
               </div>
             </div>
             <div class="kvs" id="stats"></div>
+          
+</div>
+        </details>
+      </div>
+
+      <div class="section">
+        <details open id="secWatches">
+          <summary>
+            <span>Watches</span>
+            <span class="pill" id="watchCount">—</span>
+          </summary>
+          <div class="detailsBody">
+            <div class="rowline" style="margin-bottom:8px">
+              <span class="muted">Sort</span>
+              <select id="watchSort" style="margin-left:auto">
+                <option value="level">level</option>
+                <option value="time" selected>time</option>
+                <option value="-time">-time</option>
+                <option value="value">value</option>
+              </select>
+            </div>
+
+            <div id="watchList"></div>
+            <div class="muted" style="margin-top:10px">
+              Click a watch to highlight it on the field and on the timeline.
+            </div>
           </div>
         </details>
       </div>
+
+      
     </div>
   </div>
+
+  <div id="hSplit" class="splitterH" title="Drag to resize timeline"></div>
 
   <!-- Bottom timeline bar -->
   <div id="timelineBar">
     <div id="timelineTop">
-      <span class="pill" id="tLabel">t=—</span>
-      <span class="pill" id="idxLabel">i=—</span>
-      <span class="pill" id="modeLabel">mode=—</span>
-      <span class="muted" id="poseLine" style="flex:1 1 auto; min-width: 220px;">—</span>
+      <span class="pill" id="timePill">Time: —</span>
+      <span class="pill" id="pointPill">Point: —/—</span>
+      <span class="pill" id="posePill" style="flex:1 1 auto; min-width: 260px;">X: —  Y: —  Theta: —  Speed: —</span>
     </div>
     <canvas id="timelineCanvas"></canvas>
     <div id="timelineHint" class="muted">
@@ -254,10 +372,15 @@
   const fileEl = document.getElementById('file');
   const btnPlay = document.getElementById('btnPlay');
   const btnFit = document.getElementById('btnFit');
-  const tLabel = document.getElementById('tLabel');
-  const idxLabel = document.getElementById('idxLabel');
-  const modeLabel = document.getElementById('modeLabel');
-  const poseLine = document.getElementById('poseLine');
+  const btnFile = document.getElementById('btnFile');
+  const speedSelect = document.getElementById('speedSelect');
+  const watchSort = document.getElementById('watchSort');
+  const vSplit = document.getElementById('vSplit');
+  const hSplit = document.getElementById('hSplit');
+  const timePill = document.getElementById('timePill');
+  const pointPill = document.getElementById('pointPill');
+  const posePill = document.getElementById('posePill');
+  // poseLine removed (posePill used)
   const runName = document.getElementById('runName');
   const runMeta = document.getElementById('runMeta');
   const fmt = document.getElementById('fmt');
@@ -265,7 +388,7 @@
   const watchList = document.getElementById('watchList');
   const watchCount = document.getElementById('watchCount');
   const fieldSelect = document.getElementById('fieldSelect');
-  const statPill = document.getElementById('statPill');
+  
 
   const offXEl = document.getElementById('offX');
   const offYEl = document.getElementById('offY');
@@ -300,6 +423,7 @@
   let playPose = null;      // for animation
   let hoverTimelineTime = null; // preview time on timeline (ms)
   let timelineHoverSavedIndex = null; // restore after hover
+  let hoverWatch = null;
   let timelineHotWatch = null;
 
   // playback clock
@@ -307,6 +431,7 @@
   let raf = null;
   let playTimeMs = null;
   let lastWall = null;
+  let playRate = 1;
 
   // world->screen
   let bounds = { ...FIELD_BOUNDS_IN };
@@ -505,6 +630,27 @@
     return { x: offsetXpx + xIn * scale, y: offsetYpx - yIn * scale };
   }
 
+  function hitTestWatchAtClient(clientX, clientY) {
+    if (!watchMarkers.length) return null;
+    const rect = canvas.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+    // threshold in CSS pixels
+    const tol = 10;
+    let best = null;
+    let bestD2 = tol*tol;
+    for (const m of watchMarkers) {
+      if (!m.pose) continue;
+      const p = worldToScreen(m.pose.x, m.pose.y);
+      const dx = p.x - x;
+      const dy = p.y - y;
+      const d2 = dx*dx + dy*dy;
+      if (d2 <= bestD2) { bestD2 = d2; best = m; }
+    }
+    return best;
+  }
+
+
   function fitToPoses() {
     const poses = getPosesInches();
     if (!poses.length) return;
@@ -674,24 +820,27 @@
   function drawWatchDots() {
     if (!watchMarkers.length) return;
 
-    // small dots for all watches
     for (const m of watchMarkers) {
       const { pose, watch } = m;
+      if (!pose) continue;
       const st = levelStyle(watch.level);
       const p = worldToScreen(pose.x, pose.y);
 
+      const isHover = (hoverWatch === m);
+      const r = isHover ? 5.6 : 4.2;
+      const fillA = isHover ? 0.40 : 0.25;
+
       ctx.save();
-      ctx.fillStyle = st.fill.replace(")", ",0.25)").replace("rgb", "rgba");
+      ctx.fillStyle = st.fill.replace(")", `,${fillA})`).replace("rgb", "rgba");
       ctx.strokeStyle = "rgba(255,255,255,0.95)";
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(p.x, p.y, 4.2, 0, Math.PI*2);
+      ctx.arc(p.x, p.y, r, 0, Math.PI*2);
       ctx.fill();
       ctx.stroke();
       ctx.restore();
     }
 
-    // selected watch highlight
     if (selectedWatch?.marker?.pose) {
       const st = levelStyle(selectedWatch.marker.watch.level);
       const pose = selectedWatch.marker.pose;
@@ -719,7 +868,7 @@
     const wPx = wIn * scale;
     const hPx = hIn * scale;
     const thetaDeg = (pose.theta ?? 0);
-    const thetaRad = (-thetaDeg) * Math.PI / 180;
+    const thetaRad = (thetaDeg) * Math.PI / 180;
 
     ctx.save();
     ctx.globalAlpha = alpha;
@@ -992,8 +1141,34 @@
     watchList.innerHTML = "";
     watchCount.textContent = `${watchMarkers.length}`;
 
-    for (let i=0; i<watchMarkers.length; i++) {
-      const m = watchMarkers[i];
+    const mode = watchSort ? watchSort.value : "time";
+    const items = watchMarkers.slice();
+
+    const valKey = (v) => {
+      if (v == null) return { t: 2, n: 0, s: "" };
+      if (typeof v === "boolean") return { t: 0, n: v ? 1 : 0, s: String(v) };
+      if (typeof v === "number") return { t: 1, n: v, s: "" };
+      return { t: 0, n: 0, s: String(v) };
+    };
+
+    items.sort((a,b) => {
+      const wa = a.watch || {};
+      const wb = b.watch || {};
+      if (mode === "level") return String(wa.level||"").localeCompare(String(wb.level||""));
+      if (mode === "time") return (a.t ?? 0) - (b.t ?? 0);
+      if (mode === "-time") return (b.t ?? 0) - (a.t ?? 0);
+      if (mode === "value") {
+        const ka = valKey(wa.value);
+        const kb = valKey(wb.value);
+        if (ka.t !== kb.t) return ka.t - kb.t;              // bool/string first, then numbers, then nulls
+        if (ka.t === 1) return (ka.n - kb.n);               // numeric
+        return ka.s.localeCompare(kb.s);                    // string/bool
+      }
+      return 0;
+    });
+
+    for (let i=0; i<items.length; i++) {
+      const m = items[i];
       const w = m.watch;
       const st = levelStyle(w.level);
       const label = w.label || "";
@@ -1019,7 +1194,6 @@
       watchList.appendChild(div);
     }
 
-    // re-apply selected highlight
     if (selectedWatch?.marker?.t != null) highlightWatchInList(selectedWatch.marker.t);
   }
 
@@ -1063,7 +1237,7 @@
   // ---- playback ----
   function pause() {
     playing = false;
-    btnPlay.textContent = "Play";
+    btnPlay.textContent = "▶";
     if (raf) cancelAnimationFrame(raf);
     raf = null;
     playPose = null;
@@ -1075,14 +1249,14 @@
     const tStart = rawPoses[selectedIndex]?.t;
     playTimeMs = (typeof tStart === "number") ? tStart : (rawPoses[0]?.t ?? 0);
     playing = true;
-    btnPlay.textContent = "Pause";
+    btnPlay.textContent = "⏸";
     lastWall = performance.now();
 
     const tick = (now) => {
       if (!playing) return;
       const dtWall = now - lastWall;
       lastWall = now;
-      playTimeMs += dtWall;
+      playTimeMs += dtWall * playRate;
 
       const tMin = rawPoses[0]?.t ?? 0;
       const tMax = rawPoses[rawPoses.length - 1]?.t ?? tMin;
@@ -1114,53 +1288,38 @@
   // ---- readout ----
   function updatePoseReadout() {
     if (!data || !rawPoses.length) {
-      modeLabel.textContent = "mode=—";
-      tLabel.textContent = "t=—";
-      idxLabel.textContent = "i=—";
-      poseLine.textContent = "—";
+      if (timePill) timePill.textContent = "Time: —";
+      if (pointPill) pointPill.textContent = "Point: —/—";
+      if (posePill) posePill.textContent = "X: —  Y: —  Theta: —  Speed: —";
       return;
     }
+
+    // choose a pose to display (priority: playing > hover timeline > selected index)
+    let t = null;
+    let idx = selectedIndex ?? 0;
+    let p = null;
 
     if (playing) {
-      modeLabel.textContent = "mode=play";
-      tLabel.textContent = (playTimeMs != null) ? `t=${Math.round(playTimeMs)}ms` : "t=—";
-      idxLabel.textContent = `i≈${selectedIndex}/${rawPoses.length-1}`;
-      const p = playPose;
-      poseLine.textContent = p
-        ? `x=${fmtNum(p.x)}in  y=${fmtNum(p.y)}in  θ=${fmtNum(p.theta)}°  speed=${fmtNum(p.speed,1)}`
-        : "—";
-      return;
+      t = playTimeMs;
+      p = playPose || interpolatePoseAtTime(playTimeMs);
+      idx = findFloorIndexByTime(playTimeMs);
+    } else if (hoverTimelineTime != null) {
+      t = hoverTimelineTime;
+      p = interpolatePoseAtTime(hoverTimelineTime);
+      idx = findFloorIndexByTime(hoverTimelineTime);
+    } else {
+      const rp = rawPoses[idx];
+      t = rp?.t ?? null;
+      p = rp ? applyOffsetsToPose(rp) : null;
     }
 
-    if (hoverTimelineTime != null) {
-      modeLabel.textContent = "mode=timeline-hover";
-      tLabel.textContent = `t=${Math.round(hoverTimelineTime)}ms`;
-      const idx = findFloorIndexByTime(hoverTimelineTime);
-      idxLabel.textContent = `i≈${idx}/${rawPoses.length-1}`;
-      const p = interpolatePoseAtTime(hoverTimelineTime);
-      poseLine.textContent = p
-        ? `x=${fmtNum(p.x)}in  y=${fmtNum(p.y)}in  θ=${fmtNum(p.theta)}°  speed=${fmtNum(p.speed,1)}`
-        : "—";
-      return;
+    const total = rawPoses.length;
+    if (timePill) timePill.textContent = (t == null) ? "Time: —" : `Time: ${Math.round(t)}ms`;
+    if (pointPill) pointPill.textContent = `Point: ${Math.max(1, idx+1)}/${total}`;
+    if (posePill) {
+      if (!p) posePill.textContent = "X: —  Y: —  Theta: —  Speed: —";
+      else posePill.textContent = `X: ${fmtNum(p.x,1)}  Y: ${fmtNum(p.y,1)}  Theta: ${fmtNum(p.theta,1)}°  Speed: ${fmtNum(p.speed,3)}`;
     }
-
-    if (hoverPose) {
-      modeLabel.textContent = "mode=field-hover";
-      tLabel.textContent = "t=—";
-      idxLabel.textContent = "i≈—";
-      poseLine.textContent =
-        `x=${fmtNum(hoverPose.x)}in  y=${fmtNum(hoverPose.y)}in  θ=${fmtNum(hoverPose.theta)}°  speed=${fmtNum(hoverPose.speed,1)}`;
-      return;
-    }
-
-    modeLabel.textContent = "mode=locked";
-    const p = getPosesInches()[selectedIndex] || null;
-    const t = rawPoses[selectedIndex]?.t;
-    tLabel.textContent = (typeof t === "number") ? `t=${t}ms` : "t=—";
-    idxLabel.textContent = `i=${selectedIndex}/${rawPoses.length-1}`;
-    poseLine.textContent = p
-      ? `x=${fmtNum(p.x)}in  y=${fmtNum(p.y)}in  θ=${fmtNum(p.theta)}°  speed=${fmtNum(p.speed,1)}`
-      : "—";
   }
 
   // ---- data loading ----
@@ -1232,9 +1391,7 @@
       const b = document.createElement("div"); b.textContent = String(v);
       statsEl.appendChild(a); statsEl.appendChild(b);
     }
-    statPill.textContent = `${rawPoses.length} poses`;
-
-    bounds = { ...FIELD_BOUNDS_IN };
+bounds = { ...FIELD_BOUNDS_IN };
     computeTransform();
 
     setStatus(`Loaded ${rawPoses.length} poses, ${watches.length} watches.`);
@@ -1318,19 +1475,125 @@
     drawTimeline();
   });
 
-  // ---- field hover ----
+    // ---- field hover ----
   canvas.addEventListener('mousemove', (e) => {
     if (playing || hoverTimelineTime != null) return;
+
+    const hw = hitTestWatchAtClient(e.clientX, e.clientY);
+    if (hw) {
+      hoverWatch = hw;
+      canvas.style.cursor = "pointer";
+      // don't override hoverPose when directly over a watch
+      updatePoseReadout();
+      draw();
+      return;
+    } else {
+      if (hoverWatch) { hoverWatch = null; draw(); }
+      canvas.style.cursor = "";
+    }
+
     updateHoverFromMouse(e.clientX, e.clientY);
   });
   canvas.addEventListener('mouseleave', () => {
+    hoverWatch = null;
+    canvas.style.cursor = "";
     if (hoverPose) { hoverPose = null; updatePoseReadout(); draw(); }
   });
+  canvas.addEventListener('click', (e) => {
+    if (playing) return;
+    const hw = hitTestWatchAtClient(e.clientX, e.clientY);
+    if (hw) {
+      selectWatchMarker(hw, true);
+      updatePoseReadout();
+      draw();
+      drawTimeline();
+    }
+  });
+
 
   // ---- controls ----
   window.addEventListener('resize', () => { resizeCanvas(); resizeTimeline(); });
 
-  fileEl.addEventListener('change', (e) => {
+  // ---- splitters (sidebar + timeline) ----
+  (function setupSplitters(){
+    const root = document.documentElement;
+
+    // vertical: sidebar width
+    let draggingV = false;
+    let startX = 0;
+    let startW = 0;
+
+    const getSidebarW = () => {
+      const v = getComputedStyle(root).getPropertyValue('--sidebarW').trim();
+      const n = parseFloat(v);
+      return isFinite(n) ? n : 360;
+    };
+    const setSidebarW = (px) => root.style.setProperty('--sidebarW', `${px}px`);
+
+    if (vSplit) {
+      vSplit.addEventListener('mousedown', (e) => {
+        draggingV = true;
+        startX = e.clientX;
+        startW = getSidebarW();
+        document.body.style.cursor = 'col-resize';
+        e.preventDefault();
+      });
+    }
+
+    // horizontal: timeline height
+    let draggingH = false;
+    let startY = 0;
+    let startH = 0;
+
+    const getTimelineH = () => {
+      const v = getComputedStyle(root).getPropertyValue('--timelineH').trim();
+      const n = parseFloat(v);
+      return isFinite(n) ? n : 260;
+    };
+    const setTimelineH = (px) => root.style.setProperty('--timelineH', `${px}px`);
+
+    if (hSplit) {
+      hSplit.addEventListener('mousedown', (e) => {
+        draggingH = true;
+        startY = e.clientY;
+        startH = getTimelineH();
+        document.body.style.cursor = 'row-resize';
+        e.preventDefault();
+      });
+    }
+
+    window.addEventListener('mousemove', (e) => {
+      if (draggingV) {
+        const dx = e.clientX - startX;
+        const w = window.innerWidth;
+        const next = clamp(startW - dx, 240, Math.max(260, w - 240));
+        setSidebarW(next);
+        resizeCanvas(); resizeTimeline();
+      }
+      if (draggingH) {
+        const dy = e.clientY - startY;
+        const h = window.innerHeight;
+        const next = clamp(startH - dy, 140, Math.max(160, Math.floor(h * 0.70)));
+        setTimelineH(next);
+        resizeTimeline();
+        resizeCanvas();
+      }
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (draggingV || draggingH) {
+        draggingV = false;
+        draggingH = false;
+        document.body.style.cursor = '';
+        resizeCanvas(); resizeTimeline();
+      }
+    });
+  })();
+
+    btnFile.addEventListener('click', () => fileEl.click());
+  speedSelect.addEventListener('change', () => { playRate = Number(speedSelect.value)||1; });
+  if (watchSort) watchSort.addEventListener('change', () => { renderWatchList(); draw(); drawTimeline(); });
+fileEl.addEventListener('change', (e) => {
     const file = e.target.files?.[0];
     if (file) handleFile(file);
   });
