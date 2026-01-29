@@ -44,6 +44,7 @@
  */
 
 #include "lemlib/chassis/chassis.hpp"
+#include "pros/motor_group.hpp"
 #include "pros/rtos.hpp"
 
 
@@ -309,14 +310,14 @@ public:
    */
   struct loggerConfig {
     std::atomic<bool> runThermalWatchdog{true};          ///< @brief Enable motor thermal watchdog printing.
-    std::atomic<bool> printLemlibPose{true};             ///< @brief Enable LemLib pose printing (requires chassis ref).
+    std::atomic<bool> printTelemetry{true};             ///< @brief Enable LemLib pose printing (requires chassis ref).
     std::atomic<bool> printBatteryData{true};            ///< @brief Enable battery status printing.
     std::atomic<bool> onlyPrintOverheatedMotors{true};   ///< @brief When true, omit non-overheated motors in thermal output.
     std::atomic<bool> printMotorWatchdogWarnings{true};  ///< @brief Emit warnings when motors appear unhealthy/overheated.
     std::atomic<bool> printPROSTasks{false};             ///< @brief Print PROS task list periodically.
     std::atomic<bool> logToTerminal{true};               ///< @brief Print logs to the terminal.
     std::atomic<bool> logToSD{true};                     ///< @brief Write logs to SD (locked after start()).
-    std::atomic<bool> outputForJerryio{false};           ///< @brief Output formatting mode for JerryIO tools.
+    std::atomic<bool> outputForViewer{false};           ///< @brief Output formatting mode for JerryIO tools.
     std::atomic<bool> printWatches{true};                ///< @brief Print registered watches.
   };
 
@@ -342,15 +343,6 @@ public:
   // Lifecycle
   // ------------------------------------------------------------------------
 
-  /**
-   * @brief Apply an initial configuration before calling start().
-   *
-   * Where to use it:
-   * - During initialize() / opcontrol() setup, before start().
-   *
-   * @note You can also toggle many individual settings later via setters.
-   */
-  void initialize(const loggerConfig &cfg);
   /**
    * @brief Start the logger background task (periodic telemetry + watches).
    *
@@ -383,7 +375,7 @@ public:
   void setRunThermalWatchdog(bool v);
 
   /// @brief Enable/disable LemLib pose printing.
-  void setPrintLemlibPose(bool v);
+  void setPrintTelemetry(bool v);
 
   /// @brief Enable/disable battery printing.
   void setPrintBatteryData(bool v);
@@ -413,7 +405,7 @@ public:
   void setLogToSD(bool v);
 
   /// @brief Enable/disable JerryIO output formatting.
-  void setOutputForJerryio(bool v);
+  void setOutputForViewer(bool v);
 
   /// @brief Configure whether to wait for a start character on stdin.
   void setWaitForStdIn(bool v);
@@ -425,7 +417,7 @@ public:
   bool getRunThermalWatchdog() const { return config_.runThermalWatchdog.load(); }
 
   /// @brief Get whether pose printing is enabled.
-  bool getPrintLemlibPose() const { return config_.printLemlibPose.load(); }
+  bool getPrintTelemtry() const { return config_.printTelemetry.load(); }
 
   /// @brief Get whether battery printing is enabled.
   bool getPrintBatteryData() const { return config_.printBatteryData.load(); }
@@ -450,7 +442,7 @@ public:
   bool getLogToSD() const { return config_.logToSD.load(); }
 
   /// @brief Get whether JerryIO formatting is enabled.
-  bool getOutputForJerryio() const { return config_.outputForJerryio.load(); }
+  bool getoutputForViewer() const { return config_.outputForViewer.load(); }
 
   /// @brief Get whether watches are printed.
   bool getPrintWatches() const { return config_.printWatches.load(); }
@@ -616,16 +608,13 @@ private:
   void printRunningTasks_();
 
   /// @brief Validate that required robot references are present.
-  bool checkRobotConfig_(bool checkLemLib = true);
-
-  /// @brief Validate configuration state before starting.
-  bool configCheck();
+  bool checkRobotConfig_();
 
   /// @brief Initialize SD logger file handle and state.
   bool initSDLogger_();
 
   /// @brief Generate a timestamped filename into currentFilename_.
-  void makeTimestampedFilename_(size_t len);
+  void makeTimestampedFilename_();
 
   /// @brief Optional gate: wait for a start char before beginning output.
   void waitForStartChar();
@@ -636,9 +625,6 @@ private:
    * \return C-string representation of the level.
    */
   const char *levelToString_(LogLevel level) const;
-
-  /// @brief Copy configuration flags from cfg into internal atomics.
-  void copyConfigFrom_(const loggerConfig &cfg);
 
   /**
    * @struct Watch

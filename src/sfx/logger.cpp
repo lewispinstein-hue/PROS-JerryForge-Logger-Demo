@@ -12,48 +12,14 @@ Logger &Logger::get_instance() {
   return instance;
 }
 
-void Logger::copyConfigFrom_(const Logger::loggerConfig &cfg) {
-  config_.runThermalWatchdog.store(cfg.runThermalWatchdog.load());
-  config_.printLemlibPose.store(cfg.printLemlibPose.load());
-  config_.printBatteryData.store(cfg.printBatteryData.load());
-  config_.onlyPrintOverheatedMotors.store(cfg.onlyPrintOverheatedMotors.load());
-  config_.printMotorWatchdogWarnings.store(
-      cfg.printMotorWatchdogWarnings.load());
-  config_.printPROSTasks.store(cfg.printPROSTasks.load());
-  config_.logToTerminal.store(cfg.logToTerminal.load());
-  config_.logToSD.store(cfg.logToSD.load());
-  config_.outputForJerryio.store(cfg.outputForJerryio.load());
-}
-
-void Logger::initialize(const Logger::loggerConfig &cfg) {
-  // Thread safety
-  MutexGuard m(generalMutex_, TIMEOUT_MAX);
-  if (!m.isLocked())
-    return;
-
-  // Copy atomics (assignment operator is deleted)
-  copyConfigFrom_(cfg);
-
-  // SD init happens here if enabled (per your requirement)
-  if (config_.logToSD.load()) {
-    bool success = initSDLogger_();
-    if (!success) {
-      config_.logToSD.store(false);
-      LOG_FATAL("initSDCard failed! Unable to initialize SD card.\n");
-    } else {
-      LOG_INFO("Successfully initialized SD card!\n");
-    }
-  }
-}
-
 void Logger::setRunThermalWatchdog(bool v) {
   config_.runThermalWatchdog.store(v);
   LOG_DEBUG("setRunThermalWatchdog set to: %d", v);
 }
 
-void Logger::setPrintLemlibPose(bool v) {
-  config_.printLemlibPose.store(v);
-  LOG_DEBUG("setPrintLemlibPose set to: %d", v);
+void Logger::setPrintTelemetry(bool v) {
+  config_.printTelemetry.store(v);
+  LOG_DEBUG("setprintTelemetry set to: %d", v);
 }
 
 void Logger::setPrintBatteryData(bool v) {
@@ -91,9 +57,9 @@ void Logger::setLogToSD(bool v) {
   LOG_DEBUG("logToSD set to: %d", v);
 }
 
-void Logger::setOutputForJerryio(bool v) {
-  config_.outputForJerryio.store(v);
-  LOG_DEBUG("outputForJerryio set to: %d", v);
+void Logger::setOutputForViewer(bool v) {
+  config_.outputForViewer.store(v);
+  LOG_DEBUG("outputForViewer set to: %d", v);
 }
 
 void Logger::setPrintWatches(bool v) {
@@ -137,7 +103,7 @@ bool Logger::setRobot(RobotRef ref) {
   // chassis is allowed to be nullptr now
   if (!ref.chassis) {
     LOG_WARN(
-        "setRobot(): chassis is nullptr (OK if printLemlibPose is disabled).");
+        "setRobot(): chassis is nullptr (OK if printTelemetry is disabled).");
   }
 
   pChassis_ = ref.chassis;
@@ -203,7 +169,7 @@ void Logger::log_message(LogLevel level, const char *source, const char *fmt,
   const char *color = "";
   const char *reset = "";
 
-  if (config_.logToTerminal.load() && !config_.outputForJerryio.load()) {
+  if (config_.logToTerminal.load() && !config_.outputForViewer.load()) {
     reset = "\033[0m";
     switch (level) {
     case LogLevel::DEBUG:
@@ -239,24 +205,7 @@ void Logger::log_message(LogLevel level, const char *source, const char *fmt,
   }
 }
 
-extern "C" void vTaskList(char *pcWriteBuffer);
-
-void Logger::printRunningTasks_() {
-  MutexGuard m(generalMutex_);
-  if (!m.isLocked())
-    return;
-
-  char buffer[1024];
-  vTaskList(buffer);
-
-  printf("\n--- Task List ---\n");
-  printf("Name                         	State  Prio   Stack   Num\n");
-  printf("-------------------------------------------------------\n");
-  printf("%s", buffer);
-  printf("-------------------------------------------------------\n");
-}
-
-void Logger::makeTimestampedFilename_(size_t /*len*/) {
+void Logger::makeTimestampedFilename_() {
   time_t now = time(0);
   struct tm *tstruct = localtime(&now);
 
@@ -292,7 +241,7 @@ bool Logger::initSDLogger_() {
     return false;
   }
 
-  makeTimestampedFilename_(sizeof(currentFilename_));
+  makeTimestampedFilename_();
 
   sdFile_ = fopen(currentFilename_, "w");
   if (!sdFile_) {
@@ -333,32 +282,12 @@ void Logger::logToSD(const char *levelStr, const char *fmt, ...) {
   }
 }
 
-void Logger::printBatteryInfo() {
-  MutexGuard m(generalMutex_);
-  if (!m.isLocked())
-    return;
-
-  double capacity = pros::battery::get_capacity();
-  double voltage = pros::battery::get_voltage();
-
-  if (voltage < CRITICAL_VOLTAGE_THRESHOLD) {
-    LOG_ERROR("Low Voltage Detected (CRITICAL): %.2fV (Capacity: %.0f%%)",
-              (voltage / 1000.0), capacity);
-  } else if (capacity < LOW_BATTERY_THRESHOLD) {
-    LOG_WARN("Low Battery: %.0f%% | Voltage: %.2fV", capacity,
-             (voltage / 1000.0));
-  } else {
-    LOG_INFO("Battery Good: %.0f%% | Voltage: %.2fV", capacity,
-             (voltage / 1000.0));
-  }
-}
-
-bool Logger::checkRobotConfig_(bool checkLemLib) {
+bool Logger::checkRobotConfig_() {
   MutexGuard m(generalMutex_, TIMEOUT_MAX);
 
   bool allValid = true;
 
-  if (pChassis_ == nullptr && checkLemLib) {
+  if (pChassis_ == nullptr) {
     LOG_FATAL("Chassis pointer is NULL!\n");
     allValid = false;
   }
@@ -407,8 +336,7 @@ void Logger::start() {
   }
   started_ = true;
 
-  // If user didn't call initialize(), SD init used to happen here.
-  // Preserve behavior by initializing SD now if requested and not already open.
+  // SD init used to happen here.
   if (config_.logToSD.load() && sdFile_ == nullptr) {
     bool success = initSDLogger_();
     if (!success) {
@@ -419,48 +347,116 @@ void Logger::start() {
       LOG_INFO("Successfully initialized SD card!\n");
     }
   }
-
-  // Calculate divide factor to normalize return velocity to ±127
-  static pros::MotorGears drivetrain_gearset =
-      pLeftDrivetrain_ ? pLeftDrivetrain_->get_gearing()
-                       : pros::MotorGears::invalid;
-  static double divide_factor_drivetrainRPM = 1;
-  switch (drivetrain_gearset) {
-  case pros::MotorGears::rpm_100:
-    divide_factor_drivetrainRPM = 100.0;
-    break;
-  case pros::MotorGears::rpm_200:
-    divide_factor_drivetrainRPM = 200.0;
-    break;
-  case pros::MotorGears::rpm_600:
-    divide_factor_drivetrainRPM = 600.0;
-    break;
-  default:
-    divide_factor_drivetrainRPM = 300.0;
-  }
-
-  // Lambda helper to cap the output at ±127
-  auto norm = [&](double rpm) {
-    double v = (rpm / divide_factor_drivetrainRPM) * 127.0;
-    if (v > 127)
-      v = 127;
-    if (v < -127)
-      v = -127;
-    return v;
-  };
+  
+  // Check config
+  if (config_.printTelemetry) {
+    if (!checkRobotConfig_()) {
+      LOG_FATAL("At least one pointer set by setRobot(RobotRef ref) is nullptr. Aborting!\n");
+      LOG_INFO("You can disable Telemetry logging to allow logger to run without setting up its config.");
+    }
+    LOG_INFO("All pointers set by setRobot(RobotRef ref) seem to be valid.");
+  } else
+    LOG_INFO("Telemetry printing is disabled, config not checked.");
 
   // Create task that runs Update
   task_ = std::make_unique<pros::Task>(
-      [this, norm]() mutable {
-        // We keep the original code structure here to avoid behavior
-        // changes. NOTE: Helper extraction happens inside Update(). Store norm
-        // lambda in thread local via capture; pass to pose printing via
-        // member-lambda usage inside Update.
-        (void)norm; // norm is used in Update() via re-computation; kept for
-                    // capture symmetry.
-        this->Update();
+      [this]() mutable {
+        pros::delay(200);
+        // Getting start char or automatic start
+        if (config_.logToTerminal.load() && waitForSTDin_) waitForStartChar();
+        else LOG_INFO("Logger started automatically!");
+        // Wait for controller RX settle
+        if (!config_.logToSD)
+          pros::delay(1000);
+
+        while (true) {
+          // norm is used in Update() via re-computation; kept for
+          // capture symmetry.
+          this->Update();
+          // Flush buffer
+          fflush(stdout);
+          // Wait appropriate time
+          if (config_.logToTerminal.load()) {
+            pros::delay(120);
+          } else {
+            pros::delay(80);
+          }
+        }
       },
       TASK_PRIORITY_DEFAULT, TASK_STACK_DEPTH_DEFAULT, "SFX Logger");
+}
+
+void Logger::waitForStartChar() {
+  char startChar;
+  uint32_t startTime = pros::millis();
+  LOG_INFO("Waiting for handshake (Y) with timeout...\n");
+
+  while ((pros::millis() - startTime) < waitForStdInTimeout) {
+    int c = getchar();
+
+    if (c != EOF) {
+      char startChar = (char)c;
+      if (startChar == 'Y') {
+        LOG_INFO("startChar received! Starting logger...");
+        break;
+      }
+    }
+    if ((pros::millis() - startTime) < waitForStdInTimeout - 21) {
+      LOG_WARN("Logger auto-started after timeout.\n");
+    }
+    pros::delay(20);
+  }
+}
+
+// --- Helper extractions (minimal; called by Update) ---
+void Logger::printThermalWatchdog_() {
+  for (auto &entry : internalMotorsToScan_) {
+    auto status = motorChecks::checkMotorOverheat(*entry.group, 55.0);
+
+    if (status.overheated) {
+      std::string ports;
+      for (auto p : status.motorsOverheated)
+        ports += std::to_string(p) + ", ";
+      if (!ports.empty())
+        ports.pop_back();
+
+      if (status.maxTemp >= 65) {
+        LOG_ERROR("%s CRITICAL TEMP! Max: %.0fC | Ports: %s",
+                  entry.name.c_str(), status.maxTemp, ports.c_str());
+      } else {
+        LOG_WARN("%s Overheating! Max: %.0fC | Ports: %s", 
+                 entry.name.c_str(), status.maxTemp, 
+                 ports.c_str());
+      }
+    } else if (config_.printMotorWatchdogWarnings.load() &&
+               status.maxTemp >= 50.0) {
+      LOG_WARN("%s is warm/approaching throttle. (Max: %.0fC)",
+               entry.name.c_str(), status.maxTemp);
+    } else if (!config_.onlyPrintOverheatedMotors.load()) {
+      LOG_INFO("%s MotorGroup OK (Max: %.0fC)", 
+               entry.name.c_str(), status.maxTemp);
+    }
+  }
+}
+
+void Logger::printBatteryInfo() {
+  MutexGuard m(generalMutex_);
+  if (!m.isLocked())
+    return;
+
+  double capacity = pros::battery::get_capacity();
+  double voltage = pros::battery::get_voltage();
+
+  if (voltage < CRITICAL_VOLTAGE_THRESHOLD) {
+    LOG_ERROR("Low Voltage Detected (CRITICAL): %.2fV (Capacity: %.0f%%)",
+              (voltage / 1000.0), capacity);
+  } else if (capacity < LOW_BATTERY_THRESHOLD) {
+    LOG_WARN("Low Battery: %.0f%% | Voltage: %.2fV", capacity,
+             (voltage / 1000.0));
+  } else {
+    LOG_INFO("Battery Good: %.0f%% | Voltage: %.2fV", capacity,
+             (voltage / 1000.0));
+  }
 }
 
 void Logger::printWatches() {
@@ -492,7 +488,7 @@ void Logger::printWatches() {
     if (!overrideLabel.empty())
       label = overrideLabel;
 
-    if (config_.outputForJerryio.load()) {
+    if (config_.outputForViewer.load()) {
       // Add watch tag and add comma separator 
       finalOutput = std::string("[WATCH],") +
                     std::to_string(nowMs) + 
@@ -511,85 +507,24 @@ void Logger::printWatches() {
   }
 }
 
-void Logger::waitForStartChar() {
-  char startChar;
-  uint32_t startTime = pros::millis();
-  LOG_INFO("Waiting for handshake (Y) with timeout...\n");
+extern "C" void vTaskList(char *pcWriteBuffer);
 
-  while ((pros::millis() - startTime) < waitForStdInTimeout) {
-    int c = getchar();
+void Logger::printRunningTasks_() {
+  MutexGuard m(generalMutex_);
+  if (!m.isLocked())
+    return;
 
-    if (c != EOF) {
-      char startChar = (char)c;
-      if (startChar == 'Y') {
-        LOG_INFO("startChar received! Starting logger...");
-        break;
-      }
-    }
-    if ((pros::millis() - startTime) < waitForStdInTimeout - 21) {
-      LOG_WARN("Logger auto-started after timeout.\n");
-    }
-    pros::delay(20);
-  }
-}
+  char buffer[1024];
+  vTaskList(buffer);
 
-bool Logger::configCheck() {
-  if (config_.printLemlibPose.load()) {
-    if (!checkRobotConfig_()) {
-      LOG_FATAL("At least one pointer set by setRobot(RobotRef ref) is nullptr. Aborting!\n");
-      LOG_INFO("You can disable LemLib logging to allow logger to run without setting up its config.");
-      return false;
-    }
-  } else if (!checkRobotConfig_(false)) {
-    LOG_FATAL("At least one pointer set by setRobot(RobotRef ref) is nullptr. Aborting!\n");
-    return false;
-  }
-
-  LOG_INFO("All pointers set by setRobot(RobotRef ref) seem to be valid.");
-  return true;
-}
-// --- Helper extractions (minimal; called by Update) ---
-
-void Logger::printThermalWatchdog_() {
-  for (auto &entry : internalMotorsToScan_) {
-    auto status = motorChecks::checkMotorOverheat(*entry.group, 55.0);
-
-    if (status.overheated) {
-      std::string ports;
-      for (auto p : status.motorsOverheated)
-        ports += std::to_string(p) + ", ";
-      if (!ports.empty())
-        ports.pop_back();
-
-      if (status.maxTemp >= 65) {
-        LOG_ERROR("%s CRITICAL TEMP! Max: %.0fC | Ports: %s",
-                  entry.name.c_str(), status.maxTemp, ports.c_str());
-      } else {
-        LOG_WARN("%s Overheating! Max: %.0fC | Ports: %s", 
-                 entry.name.c_str(), status.maxTemp, 
-                 ports.c_str());
-      }
-    } else if (config_.printMotorWatchdogWarnings.load() &&
-               status.maxTemp >= 50.0) {
-      LOG_WARN("%s is warm/approaching throttle. (Max: %.0fC)",
-               entry.name.c_str(), status.maxTemp);
-    } else if (!config_.onlyPrintOverheatedMotors.load()) {
-      LOG_INFO("%s MotorGroup OK (Max: %.0fC)", 
-               entry.name.c_str(), status.maxTemp);
-    }
-  }
+  printf("\n--- Task List ---\n");
+  printf("Name                         	State  Prio   Stack   Num\n");
+  printf("------------------------------------------------------------------\n");
+  printf("%s", buffer);
+  printf("------------------------------------------------------------------\n");
 }
 
 void Logger::Update() {
-  pros::delay(200);
-  // Getting start char or automatic start
-  if (config_.logToTerminal.load() && waitForSTDin_) {
-    waitForStartChar();
-  } else {
-    LOG_INFO("Logger started automatically!");
-  }
-  pros::delay(1000);
-
   static pros::MotorGears drivetrain_gearset =
       pLeftDrivetrain_ ? pLeftDrivetrain_->get_gearing()
                        : pros::MotorGears::invalid;
@@ -607,7 +542,8 @@ void Logger::Update() {
   default:
     divide_factor_drivetrainRPM = 300.0;
   }
-  auto norm = [&](double rpm) {
+
+  static auto norm = [&](double rpm) {
     double v = (rpm / divide_factor_drivetrainRPM) * 127.0;
     if (v > 127)
       v = 127;
@@ -616,89 +552,54 @@ void Logger::Update() {
     return v;
   };
 
-  try {
-    // Config check (completely handled in configCheck function)
-    if (!configCheck())
-      return;
+  // ----- Logging ----- //
+  static uint32_t lastThermalCheck, 
+                  lastBatteryCheck, 
+                  lastTasksPrint, 
+                  lastAutoSave = pros::millis();
 
-    // ----- Logging ----- //
-    if (config_.outputForJerryio.load()) {
-      if (!config_.printLemlibPose.load()) {
-        LOG_FATAL("You MUST have LemLib logging enabled to use outputForJerryio!");
-        LOG_FATAL("Enable LemLib logging or disable outputForJerryio");
-        return;
-      }
+  uint32_t now = pros::millis();
 
-      while (true) {
-        float normalizedTheta = fmod(pChassis_->getPose().theta, 360.0);
-        if (normalizedTheta < 0) normalizedTheta += 360.0;
-        
-        LOG_INFO("[DATA],%d,%.2f,%.2f,%.2f,%.1f,%.1f", 
-                 pros::millis(),
-                 pChassis_->getPose().x,
-                 pChassis_->getPose().y, normalizedTheta,
-                 norm(pLeftDrivetrain_->get_actual_velocity()),
-                 norm(pRightDrivetrain_->get_actual_velocity()));
-        
-        if (config_.printWatches)
-          printWatches();
+  if (config_.printTelemetry.load() && pChassis_ && !config_.outputForViewer) {
 
-        if (config_.logToTerminal.load()) {
-          pros::delay(120);
-        } else {
-          pros::delay(80);
-        }
-      }
-    }
+    LOG_INFO("Pose X: %.2f Y: %.2f Theta: %.2f | LVel: %.1f RVel: %.1f",
+             pChassis_->getPose().x, pChassis_->getPose().y,
+             pChassis_->getPose().theta,
+             norm(pLeftDrivetrain_->get_actual_velocity()),
+             norm(pRightDrivetrain_->get_actual_velocity()));
+  } else if (config_.printTelemetry.load() && pChassis_ &&
+             config_.outputForViewer) {
 
-    // Reference times
-    uint32_t lastThermalCheck, lastBatteryCheck, lastTasksPrint,
-        lastAutoSave = pros::millis();
+    float normalizedTheta = fmod(pChassis_->getPose().theta, 360.0);
+    if (normalizedTheta < 0)
+      normalizedTheta += 360.0;
 
-    while (true) {
-      if (config_.printLemlibPose.load() && !pChassis_) {
-        LOG_INFO("Pose X: %.2f Y: %.2f Theta: %.2f | LVel: %.1f RVel: %.1f",
-                 pChassis_->getPose().x, pChassis_->getPose().y,
-                 pChassis_->getPose().theta,
-                 norm(pLeftDrivetrain_->get_actual_velocity()),
-                 norm(pRightDrivetrain_->get_actual_velocity()));
-      }
-
-      uint32_t now = pros::millis();
-
-      if (config_.runThermalWatchdog.load() &&
-          (now - lastThermalCheck) >= thermalCheckInterval) {
-        printThermalWatchdog_();
-        lastThermalCheck = now;
-      }
-
-      if (config_.printBatteryData.load() &&
-          (now - lastBatteryCheck) >= batteryCheckInterval) {
-        printBatteryInfo();
-        lastBatteryCheck = now;
-      }
-
-      if (config_.printPROSTasks.load() &&
-          (now - lastTasksPrint) >= taskPrintInterval) {
-        printRunningTasks_();
-        lastTasksPrint = now;
-      }
-
-      if (config_.printWatches)
-        printWatches();
-
-      fflush(stdout);
-
-      if (config_.logToTerminal.load()) {
-        pros::delay(120);
-      } else {
-        pros::delay(80);
-      }
-    }
-  } catch (const std::exception &e) {
-    LOG_FATAL("Logger crashed: %s", e.what());
-    started_ = false;
+    LOG_INFO("[DATA],%d,%.2f,%.2f,%.2f,%.1f,%.1f", now, pChassis_->getPose().x,
+             pChassis_->getPose().y, normalizedTheta,
+             norm(pLeftDrivetrain_->get_actual_velocity()),
+             norm(pRightDrivetrain_->get_actual_velocity()));
   }
+
+  if (config_.runThermalWatchdog.load() &&
+      (now - lastThermalCheck) >= thermalCheckInterval) {
+    printThermalWatchdog_();
+    lastThermalCheck = now;
+  }
+
+  if (config_.printBatteryData.load() &&
+      (now - lastBatteryCheck) >= batteryCheckInterval) {
+    printBatteryInfo();
+    lastBatteryCheck = now;
+  }
+
+  if (config_.printPROSTasks.load() &&
+      (now - lastTasksPrint) >= taskPrintInterval) {
+    printRunningTasks_();
+    lastTasksPrint = now;
+  }
+
+  if (config_.printWatches)
+    printWatches();
 }
 
 } // namespace sfx

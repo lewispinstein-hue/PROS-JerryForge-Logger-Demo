@@ -107,7 +107,7 @@ void initialize() {
   logger.setLoggerMinLevel(LogLevel::INFO); // Hide "Debug" messages
   logger.setPrintWatches(true);
 
-  logger.setOutputForJerryio(true);
+  logger.setOutputForViewer(true);
   
   // 4. Calibrate & Start
   chassis.calibrate(); // Calibrate IMU
