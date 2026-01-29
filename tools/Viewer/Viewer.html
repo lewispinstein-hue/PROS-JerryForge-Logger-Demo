@@ -460,7 +460,13 @@
     <div id="timelineTop">
       <span class="pill" id="timePill">Time: —</span>
       <span class="pill" id="pointPill">Point: —/—</span>
-      <span class="pill" id="posePill" style="flex:1 1 auto; min-width: 260px;">X: —  Y: —  θ: —  Speed: —</span>
+      <span class="pill poseReadout" id="posePill">
+        <span class="kv"><span class="k">X</span><span class="v" id="poseX">—</span></span>
+        <span class="kv"><span class="k">Y</span><span class="v" id="poseY">—</span></span>
+        <span class="kv"><span class="k">θ</span><span class="v" id="poseTh">—</span></span>
+        <span class="kv"><span class="k">Speed</span><span class="v" id="poseSp">—</span></span>
+        <span class="kv"><span class="k">n</span><span class="v" id="poseSn">—</span></span>
+      </span>
     </div>
     <canvas id="timelineCanvas"></canvas>
     <div id="timelineHint" class="muted">
@@ -1300,23 +1306,54 @@
     if (p) drawRobot(p, 1.0);
   }
 
-  // -------- timeline --------
-  function timeToX(t) {
-    const rect = timelineCanvas.getBoundingClientRect();
-    const W = rect.width;
-    const range = timeRange();
-    if (!range) return 0;
-    const a = (t - range.t0) / (range.tN - range.t0);
-    return clamp(a, 0, 1) * W;
-  }
-
-  function xToTime(x) {
+    // -------- timeline --------
+  function indexToX(i) {
     const rect = timelineCanvas.getBoundingClientRect();
     const W = rect.width || 1;
-    const range = timeRange();
-    if (!range) return 0;
+    const n = Math.max(1, rawPoses.length - 1);
+    return (clamp(i, 0, n) / n) * W;
+  }
+
+  // Map a time to a *fractional pose index*, then to X.
+  // This makes consecutive poses evenly spaced on the timeline.
+  function timeToX(t) {
+    if (!rawPoses.length) return 0;
+
+    // binary search for floor index by time
+    let lo = 0, hi = rawPoses.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      const tm = rawPoses[mid]?.t ?? 0;
+      if (tm <= t) lo = mid;
+      else hi = mid - 1;
+    }
+
+    const i0 = lo;
+    const i1 = Math.min(rawPoses.length - 1, i0 + 1);
+    const t0 = rawPoses[i0]?.t ?? 0;
+    const t1 = rawPoses[i1]?.t ?? t0;
+
+    const frac = (t1 === t0) ? 0 : clamp((t - t0) / (t1 - t0), 0, 1);
+    return indexToX(i0 + frac);
+  }
+
+  // Inverse: X -> fractional pose index -> interpolated time
+  function xToTime(x) {
+    if (!rawPoses.length) return 0;
+
+    const rect = timelineCanvas.getBoundingClientRect();
+    const W = rect.width || 1;
+
     const a = clamp(x / W, 0, 1);
-    return range.t0 + a * (range.tN - range.t0);
+    const f = a * (rawPoses.length - 1);
+
+    const i0 = Math.floor(f);
+    const i1 = Math.min(rawPoses.length - 1, i0 + 1);
+    const frac = f - i0;
+
+    const t0 = rawPoses[i0]?.t ?? 0;
+    const t1 = rawPoses[i1]?.t ?? t0;
+    return t0 + frac * (t1 - t0);
   }
 
   function timelinePickWatchDot(mx, my) {
@@ -1612,7 +1649,7 @@
       if (!playing) return;
       const dtWall = now - lastWall;
       lastWall = now;
-      // Make playback speed *match the heat color scale* (slow=red, fast=green),
+      // Make playback speed match the heat color scale (slow=red, fast=green),
       // including when the user adjusts Min/Max speed normalization.
       const cur = interpolatePoseAtTime(playTimeMs) || rawPoses[selectedIndex] || null;
       const n = (cur && typeof cur.speed_norm === "number") ? cur.speed_norm : 0.5;

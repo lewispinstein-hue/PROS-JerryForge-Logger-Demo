@@ -106,8 +106,6 @@ void initialize() {
   logger.setOnlyPrintOverheatedMotors(false); // If true, hides cool motors
   logger.setLoggerMinLevel(LogLevel::INFO); // Hide "Debug" messages
   logger.setPrintWatches(true);
-
-  logger.setOutputForViewer(true);
   
   // 4. Calibrate & Start
   chassis.calibrate(); // Calibrate IMU

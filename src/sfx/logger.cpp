@@ -88,12 +88,11 @@ void Logger::setLoggerMinLevel(LogLevel level) {
 }
 
 bool Logger::setRobot(RobotRef ref) {
-  static bool isConfigSet = false;
-  if (isConfigSet) {
+  if (configSet_) {
     LOG_WARN("setRobot(RobotRef) called twice!");
     return false;
   }
-  isConfigSet = true;
+  configSet_ = true;
 
   if (!ref.Left_Drivetrain || !ref.Right_Drivetrain) {
     LOG_FATAL("setRobot(RobotRef) called with nullptr drivetrain arguments!");
@@ -287,15 +286,15 @@ bool Logger::checkRobotConfig_() {
 
   bool allValid = true;
 
-  if (pChassis_ == nullptr) {
+  if (pChassis_.get() == nullptr) {
     LOG_FATAL("Chassis pointer is NULL!\n");
     allValid = false;
   }
-  if (pLeftDrivetrain_ == nullptr) {
+  if (pLeftDrivetrain_.get() == nullptr) {
     LOG_FATAL("Left Drivetrain pointer is NULL!\n");
     allValid = false;
   }
-  if (pRightDrivetrain_ == nullptr) {
+  if (pRightDrivetrain_.get() == nullptr) {
     LOG_FATAL("Right Drivetrain pointer is NULL!\n");
     allValid = false;
   }
@@ -347,7 +346,11 @@ void Logger::start() {
       LOG_INFO("Successfully initialized SD card!\n");
     }
   }
-  
+    LOG_DEBUG("Chassis: %p", (void*)pChassis_.get());
+    LOG_DEBUG("Left Drivetrain: %p", (void*)pLeftDrivetrain_.get());
+    LOG_DEBUG("Right Drivetrain: %p", (void*)pRightDrivetrain_.get());
+    LOG_DEBUG("This: %p", (void*)this);
+    
   // Check config
   if (config_.printTelemetry) {
     if (!checkRobotConfig_()) {
@@ -526,7 +529,7 @@ void Logger::printRunningTasks_() {
 
 void Logger::Update() {
   static pros::MotorGears drivetrain_gearset =
-      pLeftDrivetrain_ ? pLeftDrivetrain_->get_gearing()
+      pLeftDrivetrain_.get() ? pLeftDrivetrain_.get()->get_gearing()
                        : pros::MotorGears::invalid;
   static double divide_factor_drivetrainRPM = 1;
   switch (drivetrain_gearset) {
@@ -560,24 +563,24 @@ void Logger::Update() {
 
   uint32_t now = pros::millis();
 
-  if (config_.printTelemetry.load() && pChassis_ && !config_.outputForViewer) {
+  if (config_.printTelemetry.load() && pChassis_.get() && !config_.outputForViewer) {
 
     LOG_INFO("Pose X: %.2f Y: %.2f Theta: %.2f | LVel: %.1f RVel: %.1f",
-             pChassis_->getPose().x, pChassis_->getPose().y,
-             pChassis_->getPose().theta,
-             norm(pLeftDrivetrain_->get_actual_velocity()),
-             norm(pRightDrivetrain_->get_actual_velocity()));
-  } else if (config_.printTelemetry.load() && pChassis_ &&
+             pChassis_.get()->getPose().x, pChassis_.get()->getPose().y,
+             pChassis_.get()->getPose().theta,
+             norm(pLeftDrivetrain_.get()->get_actual_velocity()),
+             norm(pRightDrivetrain_.get()->get_actual_velocity()));
+  } else if (config_.printTelemetry.load() && pChassis_.get() &&
              config_.outputForViewer) {
 
-    float normalizedTheta = fmod(pChassis_->getPose().theta, 360.0);
+    float normalizedTheta = fmod(pChassis_.get()->getPose().theta, 360.0);
     if (normalizedTheta < 0)
       normalizedTheta += 360.0;
 
-    LOG_INFO("[DATA],%d,%.2f,%.2f,%.2f,%.1f,%.1f", now, pChassis_->getPose().x,
-             pChassis_->getPose().y, normalizedTheta,
-             norm(pLeftDrivetrain_->get_actual_velocity()),
-             norm(pRightDrivetrain_->get_actual_velocity()));
+    LOG_INFO("[DATA],%d,%.2f,%.2f,%.2f,%.1f,%.1f", now, pChassis_.get()->getPose().x,
+             pChassis_.get()->getPose().y, normalizedTheta,
+             norm(pLeftDrivetrain_.get()->get_actual_velocity()),
+             norm(pRightDrivetrain_.get()->get_actual_velocity()));
   }
 
   if (config_.runThermalWatchdog.load() &&

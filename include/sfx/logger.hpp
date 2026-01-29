@@ -796,7 +796,8 @@ private:
   const char *date = __DATE__;
   bool waitForSTDin_ = false;        
   bool started_ = false;             
-  bool sdLocked_ = false;           
+  bool sdLocked_ = false;    
+  bool configSet_ = false;       
 
   // Robot refs
   std::shared_ptr<lemlib::Chassis> pChassis_ = nullptr; 

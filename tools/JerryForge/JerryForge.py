@@ -1,12 +1,34 @@
 #!/usr/bin/env python3
 import json, secrets, string, os, math, sys, glob, argparse, re
 from typing import List, Dict, Optional, Tuple, Any
+from pathlib import Path
 
 # ==========================================
 # CONFIGURATION
 # ==========================================
 DEFAULT_CONFIG_FILE = "JerryForge-defaults.json"
 COORD_TOLERANCE = 0.5  # matching tolerance for reverse casting (units)
+
+# Resolve config path reliably (supports ~, and running from any CWD)
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+def resolve_config_path(p: Optional[str]) -> str:
+    """Resolve the config path.
+
+    - If p is None, try DEFAULT_CONFIG_FILE in CWD; if missing, try alongside this script.
+    - Expands '~'.
+    - For relative paths, prefers as-given if it exists; otherwise tries alongside this script.
+    """
+    if not p:
+        cwd_candidate = DEFAULT_CONFIG_FILE
+        local_candidate = os.path.join(SCRIPT_DIR, DEFAULT_CONFIG_FILE)
+        return cwd_candidate if os.path.exists(cwd_candidate) else local_candidate
+
+    p = os.path.expanduser(p)
+    if os.path.isabs(p):
+        return p
+
+    return p if os.path.exists(p) else os.path.join(SCRIPT_DIR, p)
 
 def load_config(file_path: str = DEFAULT_CONFIG_FILE) -> Dict[str, Any]:
     fallback: Dict[str, Any] = {
@@ -33,7 +55,7 @@ def load_config(file_path: str = DEFAULT_CONFIG_FILE) -> Dict[str, Any]:
         # File searching locations
         "scan_paths_latest": ["./"],
         "scan_paths_batch": ["./"],
-        "output_folder": "",
+        "output_folder": "Default",
 
         # PathCaster
         "render_invisible_waypoints": False,
@@ -44,6 +66,8 @@ def load_config(file_path: str = DEFAULT_CONFIG_FILE) -> Dict[str, Any]:
         "viewer_thin_ms": 20,     # min time delta between kept points (if timestamps exist)
         "log_hz": 100,            # used only if timestamps are missing
     }
+
+    file_path = os.path.expanduser(file_path)
 
     if os.path.exists(file_path):
         try:
@@ -89,9 +113,17 @@ def sanitize_batch_name(base: Optional[str], original: str) -> str:
 
 def ensure_output_folder(path: str) -> str:
     if not path or re.search(r"[*:?<>|]", path):
-        return "./"
-    os.makedirs(path, exist_ok=True)
-    return path
+        return str(SCRIPT_DIR)
+
+    path = os.path.expanduser(path)
+    out = Path(path)
+
+    # If it's relative, anchor it to the script directory (repo).
+    if not out.is_absolute():
+        out = SCRIPT_DIR / out
+
+    out.mkdir(parents=True, exist_ok=True)
+    return str(out)
 
 def _prompt_bool(prompt: str, default: bool) -> bool:
     d = "y" if default else "n"
@@ -306,7 +338,7 @@ def thin_points_viewer(points: List[Dict[str, Any]], params: Dict[str, Any]) -> 
         moved = math.hypot(p["x"] - last["x"], p["y"] - last["y"]) >= params.get("xy_tol")
         turned = get_angular_diff(p["theta"], last["theta"]) >= params.get("theta_tol")
 
-        if   moved or turned:
+        if dt_ok or moved or turned:
             kept.append(p)
             last = p
         else:
@@ -881,7 +913,8 @@ def main():
     parser.add_argument("--cast", action="store_true", help="--cast --out <name> --file <filename> --config <jsonfile> [OPTIONAL] Convert a JerryIO file into templated autonomous code")
 
     args = parser.parse_args()
-    CONFIG = load_config(args.config or DEFAULT_CONFIG_FILE)
+    config_path = resolve_config_path(args.config)
+    CONFIG = load_config(config_path)
 
     # Reverse Conversion: --cast
     if args.cast:
@@ -893,16 +926,13 @@ def main():
             input_file = args.file
 
         elif args.latest:
-            json_path = args.config or DEFAULT_CONFIG_FILE
-            with open(json_path, "r") as f:
-                cfg = json.load(f)
-
-            scan_paths = cfg.get("scan_paths_latest", [])
+            scan_paths = CONFIG.get("scan_paths_latest", [])
             if not scan_paths:
                 raise FileNotFoundError("No destinations in config: scan_paths_latest")
 
             txt_files = []
             for p in scan_paths:
+                p = os.path.expanduser(p)
                 if os.path.isdir(p):
                     for f_name in os.listdir(p):
                         if f_name.endswith(".txt"):
@@ -935,7 +965,7 @@ def main():
             cast_jerry_path(
                 input_file=input_file,
                 output_file=args.out,
-                config_file=args.config or DEFAULT_CONFIG_FILE,
+                config_file=config_path,
                 verbose=args.verbose,
             )
         except (ValueError, FileNotFoundError) as e:
@@ -944,8 +974,9 @@ def main():
         sys.exit(0)
 
     # ---------- VALIDATION ----------
+    # If no mode chosen, default to --latest (matches the help text)
     if not (args.batch or args.latest or args.file or args.paste or args.cast):
-        parser.error("Must specify a command")
+        args.latest = True
 
     if not args.batch and (args.skip_confirm or args.new or args.old):
         parser.error("Batch-only flags used without --batch")
@@ -995,7 +1026,7 @@ def main():
                         range_str=args.range,
                         verbose=args.verbose,
                         no_output=args.no_output,
-                        config_file=args.config or DEFAULT_CONFIG_FILE,
+                        config_file=config_path,
                     )
 
         except (ValueError, FileNotFoundError, IOError) as e:
@@ -1005,7 +1036,8 @@ def main():
     # ---------- LATEST ----------
     elif args.latest:
         try:
-            logs = sort_logs(get_logs_from_paths(params["scan_paths_latest"]), newest=True)
+            newest = (args.sort != "oldest")
+            logs = sort_logs(get_logs_from_paths(params["scan_paths_latest"]), newest=newest)
             if not logs:
                 print("No .log files found in scan_paths_latest")
                 return
@@ -1033,7 +1065,7 @@ def main():
                     range_str=args.range,
                     verbose=args.verbose,
                     no_output=args.no_output,
-                    config_file=args.config or DEFAULT_CONFIG_FILE,
+                    config_file=config_path,
                 )
 
         except (ValueError, FileNotFoundError, IOError) as e:
@@ -1062,7 +1094,7 @@ def main():
                     range_str=args.range,
                     verbose=args.verbose,
                     no_output=args.no_output,
-                    config_file=args.config or DEFAULT_CONFIG_FILE,
+                    config_file=config_path,
                 )
 
         except (ValueError, FileNotFoundError, IOError) as e:

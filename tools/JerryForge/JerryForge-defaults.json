@@ -1,6 +1,6 @@
 {
     "density": 1,
-    "xy_tol": 3.5,
+    "xy_tol": 1.5,
     "theta_tol": 35.0,
 
     "visible_xy_tol": 15.0,
@@ -11,11 +11,11 @@
     "offset_y": 0.0,
     "offset_theta": 0.0,
 
-    "robot_width": 12,
+    "robot_width": 127,
     "robot_height": 12,
     "jerryio_point_density": 2,
     
-    "scan_paths_latest": ["./"],
+    "scan_paths_latest": ["./tools/JerryForge/"],
     "scan_paths_batch": ["./"],
 
     "output_folder": "General",
