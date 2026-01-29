@@ -16,5 +16,8 @@ temp.errors
 *.ini
 .d/
 
+# Apple junk
+.DS_Store
+
 # JerryForge
 GUIDE.md
