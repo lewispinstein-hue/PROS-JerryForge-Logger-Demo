@@ -278,8 +278,8 @@
 
   // --- YOUR FIELD IMAGES ---
   const FIELD_IMAGES = [
-    { key: "match_field_2025-2026_pushback.png", label: "Field: Match Field" },
-    { key: "skills_field_2025-2026_pushback.png", label: "Field: Skills Field" },
+    { key: "./assets/match_field_2025-2026_pushback.png", label: "Field: Match Field" },
+    { key: "./assets/skills_field_2025-2026_pushback.png", label: "Field: Skills Field" },
   ];
 
   // Field bounds in INCHES (default view when no Fit)
@@ -289,7 +289,9 @@
   const HOVER_PIXEL_TOL = 14;
 
   let data = null;
-  let rawPoses = [];    // as loaded, in file units
+  let rawPoses = [];
+    recomputeNormalizedSpeeds();
+    // as loaded, in file units
   let watches = [];     // normalized watches
   let watchMarkers = []; // {watch, t, poseInches, ok:boolean, dt:number|null}
   let selectedWatch = null; // { marker }
@@ -329,6 +331,35 @@
     return normalizeDeg(a + diff * t);
   }
   function fmtNum(v, d=2) { if (typeof v !== "number" || !isFinite(v)) return "—"; return v.toFixed(d); }
+
+  // ---- speed normalization (affects numbers) ----
+  function normSpeed(raw, minV, maxV){
+    if (typeof raw !== "number" || !isFinite(raw)) return 0;
+    if (typeof minV !== "number" || !isFinite(minV)) minV = 0;
+    if (typeof maxV !== "number" || !isFinite(maxV)) maxV = 1;
+    if (maxV === minV) return 0;
+    const v = (raw - minV) / (maxV - minV);
+    return clamp(v, 0, 1);
+  }
+
+  function getMinMaxSpeed(){
+    const minEl = document.getElementById('minSpeed');
+    const maxEl = document.getElementById('maxSpeed');
+    const minV = minEl ? Number(minEl.value) : 0;
+    const maxV = maxEl ? Number(maxEl.value) : 1;
+    return { minV, maxV, minEl, maxEl };
+  }
+
+  function recomputeNormalizedSpeeds(){
+    if (!rawPoses || !rawPoses.length) return;
+    const { minV, maxV } = getMinMaxSpeed();
+    for (const p of rawPoses){
+      if (!p) continue;
+      if (typeof p.speed_raw === "undefined") p.speed_raw = p.speed;
+      const raw = (typeof p.speed_raw === "number") ? p.speed_raw : p.speed;
+      p.speed = normSpeed(raw, minV, maxV); // canonical speed is normalized
+    }
+  }
   function setStatus(msg) { statusEl.textContent = msg; }
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;" }[c]));
@@ -1353,6 +1384,15 @@
   resizeCanvas();
   resizeTimeline();
 })();
+
+  // min/max speed: recompute canonical normalized speeds, then redraw
+  (function initMinMaxSpeed(){
+    const { minEl, maxEl } = getMinMaxSpeed();
+    const onMM = () => { recomputeNormalizedSpeeds(); draw(); drawTimeline(); updatePoseReadout(); };
+    if (minEl) minEl.addEventListener('input', onMM);
+    if (maxEl) maxEl.addEventListener('input', onMM);
+  })();
+
 </script>
 </body>
 </html>
