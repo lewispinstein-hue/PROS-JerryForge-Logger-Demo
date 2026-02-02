@@ -334,18 +334,12 @@
 <div class="app">
   <div class="row">
     <div id="canvasWrap">
-      <canvas id="c" title="Field view: hover path to preview robot pose; click to lock; click watches for details"></canvas>
+      <canvas id="c"></canvas>
     </div>
 
     <div id="vSplit" class="splitterV" title="Drag to resize"></div>
 
     <div id="right">
-      <div class="section">
-        <div class="drop muted">
-          Tip: drag & drop a <code>*-viewer.json</code> file anywhere on the page.
-        </div>
-      </div>
-
       <div class="section">
         <details open id="secGeneral">
           <summary>
@@ -365,21 +359,18 @@
                   <option value="ft">foot</option>
                   <option value="tiles">tiles (24 in)</option>
                 </select>
-                <div class="muted" style="margin-top:6px">
-                  Rendering uses inches internally.
-                </div>
               </div>
               <div>
                 <label>Robot size (inches on field)</label>
                 <div class="grid2">
-                  <input id="robotW" type="number" step="0.5" value="12" />
-                  <input id="robotH" type="number" step="0.5" value="12" />
+                  <input id="robotW" type="number" step="1" value="12" />
+                  <input id="robotH" type="number" step="1" value="12" />
                 </div>
                 <div class="muted" style="margin-top:6px">width / height</div>
               </div>
             </div>
+            <div class="divider" style="margin:14px 0;"></div>
             <div id="robotImgControls" style="margin-top:12px" hidden>
-              <div class="muted" style="margin-bottom:6px">Robot image: <code>./robot_image.png</code></div>
               <div class="grid2">
                 <div>
                   <label>Img Scale</label>
@@ -387,11 +378,11 @@
                 </div>
                 <div>
                   <label>Img X Off (in)</label>
-                  <input id="robotImgOffX" type="number" step="0.1" value="0" />
+                  <input id="robotImgOffX" type="number" step="0.25" value="0" />
                 </div>
                 <div>
                   <label>Img Y Off (in)</label>
-                  <input id="robotImgOffY" type="number" step="0.1" value="0" />
+                  <input id="robotImgOffY" type="number" step="0.25" value="0" />
                 </div>
                 <div>
                   <label>Img Rot (°)</label>
@@ -399,9 +390,8 @@
                 </div>
               </div>
             </div>
-
-
-            <div style="margin-top:12px" class="grid3">
+            <div class="divider" style="margin:14px 0;"></div>
+            <div style="margin-top:12px" class="grid3"> 
               <div>
                 <label>X Offset</label>
                 <input id="offX" type="number" step="0.1" value="0" />
@@ -415,14 +405,7 @@
                 <input id="offTheta" type="number" step="1" value="0" />
               </div>
             </div>
-            <div class="muted" style="margin-top:8px">
-              Offsets move the whole path relative to the field. (No auto-fit on offset changes.)
-            </div>
-
-            <div class="divider" style="margin:14px 0;"></div>
-            <div style="font-weight:800; margin-bottom:6px">Stats</div>
-            
-            <div class="grid2" style="margin-bottom:10px">
+              <div class="grid2" style="margin-bottom:10px">
               <div>
                 <label>Min speed (normalize)</label>
                 <input id="minSpeed" type="number" title="Minimum speed used for color normalization (red=slow)" step="1" value="0" />
@@ -432,6 +415,8 @@
                 <input id="maxSpeed" type="number" title="Maximum speed used for color normalization (green=fast)" step="1" value="127" />
               </div>
             </div>
+            <div class="divider" style="margin:14px 0;"></div>
+              <div style="font-weight:800; margin-bottom:6px">Stats</div>
             <div class="kvs" id="stats"></div>
           
 </div>
@@ -513,7 +498,6 @@
   window.addEventListener('mousemove', (e) => { lastMouseClient = { x: e.clientX, y: e.clientY }; }, { passive: true });
 
   const ctx = canvas.getContext('2d');
-
   const timelineCanvas = document.getElementById('timelineCanvas');
   const tctx = timelineCanvas.getContext('2d');
 
@@ -577,9 +561,9 @@
   const FIELD_BOUNDS_IN = { minX: -72, maxX: 72, minY: -72, maxY: 72, pad: 30 };
 
   const WATCH_TOL_MS = 40; // Controls the ± time that determines which pose a watch attaches to
-  const HOVER_PIXEL_TOL = 14;
   const COLLAPSE_PX = 60; // When the sidebar / timeline collapses away
-
+  
+  const HOVER_PIXEL_TOL = 14;
   const TRACK_HOVER_PAD_PX = 8; // How close to the track before snapping on
 
   let data = null;
@@ -1638,7 +1622,7 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
     const spNorm = (p?.speed_norm != null) ? p.speed_norm : (rawPoses[idx]?.speed_norm ?? 0);
 
     posePill.textContent = p
-      ? `X: ${fmtNum(p.x,1)}  Y: ${fmtNum(p.y,1)}  θ: ${fmtNum(p.theta,1)}°  Speed: ${fmtNum(spRaw,2)} (n=${fmtNum(spNorm,2)})`
+      ? `X: ${fmtNum(p.x,1)}  Y: ${fmtNum(p.y,1)}  θ: ${fmtNum(p.theta,1)}°  Speed: ${fmtNum(spRaw,2)}`
       : "X: —  Y: —  θ: —  Speed: —";
   }
 
@@ -1916,8 +1900,7 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
       const n = (cur && typeof cur.speed_norm === "number") ? cur.speed_norm : 0.5;
       const SPEED_SLOW = 0.25; // red end
       const SPEED_FAST = 2.00; // green end
-      const speedFactor = SPEED_SLOW + (SPEED_FAST - SPEED_SLOW) * clamp(n, 0, 1);
-      playTimeMs += dtWall * playRate * speedFactor;
+      playTimeMs += dtWall * playRate;
 
       const tMin = rawPoses[0]?.t ?? 0;
       const tMax = rawPoses[rawPoses.length - 1]?.t ?? tMin;
@@ -2278,8 +2261,6 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
     computeSpeedNorm();
 
     fmt.textContent = `${obj.format || "unknown"} v${obj.version ?? "?"}`;
-    runName.textContent = obj?.meta?.run_name || "—";
-    runMeta.textContent = `${obj?.meta?.coord_system || "—"} • Log Hz=${obj?.meta?.log_hz ?? "—"}`;
 
     selectedWatch = null;
     selectedIndex = 0;
@@ -2301,14 +2282,14 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
     const t0 = rawPoses[0]?.t;
     const tN = rawPoses[rawPoses.length-1]?.t;
     const rows = [
-      ["poses(file)", rawPoses.length],
-      ["watches(file)", watches.length],
-      ["watches(mapped)", watchMarkers.length],
+      ["Poses in file", rawPoses.length],
+      ["Watches in file", watches.length],
+      ["Watches mapped on path", watchMarkers.length],
       ["file raw est", th.raw ?? "—"],
-      ["file kept", th.kept ?? "—"],
-      ["file removed", th.removed ?? "—"],
-      ["viewer_thin_ms", th.viewer_thin_ms ?? "—"],
-      ["t range", (typeof t0==="number" && typeof tN==="number") ? `${t0}…${tN} ms` : "—"],
+      ["Points kept from file", th.kept ?? "—"],
+      ["Points removed from file", th.removed ?? "—"],
+      ["Thinning ms", th.viewer_thin_ms ?? "—"],
+      ["Time range", (typeof t0==="number" && typeof tN==="number") ? `${t0}…${tN} ms` : "—"],
     ];
     statsEl.innerHTML = "";
     for (const [k, v] of rows) {

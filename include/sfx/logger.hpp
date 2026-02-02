@@ -310,14 +310,14 @@ public:
    */
   struct loggerConfig {
     std::atomic<bool> runThermalWatchdog{true};          ///< @brief Enable motor thermal watchdog printing.
-    std::atomic<bool> printTelemetry{true};             ///< @brief Enable LemLib pose printing (requires chassis ref).
+    std::atomic<bool> printTelemetry{true};              ///< @brief Enable LemLib pose printing (requires chassis ref).
     std::atomic<bool> printBatteryData{true};            ///< @brief Enable battery status printing.
     std::atomic<bool> onlyPrintOverheatedMotors{true};   ///< @brief When true, omit non-overheated motors in thermal output.
     std::atomic<bool> printMotorWatchdogWarnings{true};  ///< @brief Emit warnings when motors appear unhealthy/overheated.
     std::atomic<bool> printPROSTasks{false};             ///< @brief Print PROS task list periodically.
     std::atomic<bool> logToTerminal{true};               ///< @brief Print logs to the terminal.
     std::atomic<bool> logToSD{true};                     ///< @brief Write logs to SD (locked after start()).
-    std::atomic<bool> outputForViewer{false};           ///< @brief Output formatting mode for JerryIO tools.
+    std::atomic<bool> outputForViewer{false};            ///< @brief Output formatting mode for JerryIO tools.
     std::atomic<bool> printWatches{true};                ///< @brief Print registered watches.
   };
 
@@ -538,10 +538,13 @@ public:
    * Example:
    * @code
    * auto& logger = sfx::Logger::get_instance();
-   * logger.watch("intake_rpm", sfx::LogLevel::INFO, 1000,
+   * logger.watch("Intake RPM:", sfx::LogLevel::INFO, 
+   * uint32_t{1000}, // The uint32_t{} is needed to disambiguate the overload
    * [&](){ return left_mg.get_actual_velocity(); },
-   * sfx::LevelOverride<double>{ sfx::LogLevel::WARN,
-   * PREDICATE(v > 550;) },
+   * sfx::LevelOverride<double>{ 
+   * .elevatedLevel = sfx::LogLevel::WARN,
+   * .predicate = PREDICATE(v > 550;),
+   * .label = "Intake RPM over 550:"},
    * "%.0f");
    * @endcode
    */

@@ -11,7 +11,7 @@
     "offset_y": 0.0,
     "offset_theta": 0.0,
 
-    "robot_width": 127,
+    "robot_width": 12,
     "robot_height": 12,
     "jerryio_point_density": 2,
     
