@@ -5,7 +5,16 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>JerryForge Viewer (Offline)</title>
   <style>
-    :root { --bg:#0b0f14; --panel:#101720; --text:#e7eef7; --muted:#93a4b8; --line:#233244; }
+    :root { 
+      --sidebarW: 360px;
+      --timelineH: 260px;
+      --toolbarH: 54px;
+      --bg:#0b0f14; 
+      --panel:#101720; 
+      --text:#e7eef7; 
+      --muted:#93a4b8; 
+      --line:#233244; 
+    }
     * { box-sizing:border-box; }
     body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--text); }
     header { padding:10px 14px; border-bottom:1px solid var(--line); display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
@@ -40,9 +49,11 @@
       border-left:1px solid var(--line);
       background:rgba(16,23,32,.7);
       backdrop-filter: blur(6px);
-      overflow:auto;
-      min-width: 240px;
+      overflow: hidden;
+      min-width: 40px;
+      max-width: 500px;
     }
+
     #right * { min-width: 0; }
     #right .section { padding:12px 14px; border-bottom:1px solid var(--line); }
     .drop { border:1px dashed var(--line); border-radius:12px; padding:10px; }
@@ -99,7 +110,7 @@
     }
     #timelineTop {
       display:grid;
-      grid-template-columns:215px 1fr;
+      grid-template-columns:300px 1fr;
       align-items:center;
       column-gap:10px;
       row-gap:8px;
@@ -114,12 +125,7 @@
       display:block;
     }
     #timelineHint { color: var(--muted); font-size: 12px; }
-  
-  :root{
-    --sidebarW: 360px;
-    --timelineH: 260px;
-    --toolbarH: 54px;
-  }
+
   header.toolbar{
     display:flex;
     align-items:center;
@@ -156,6 +162,7 @@
     height: 34px;
     box-sizing: border-box;
   }
+
   .chip select{
     background: rgba(0,0,0,0.25);
     border: 1px solid rgba(255,255,255,0.12);
@@ -164,6 +171,7 @@
     padding: 4px 8px;
     height: 24px;
   }
+
   .rowline{ display:flex; align-items:center; gap:10px; }
   .divider{ height:1px; background: rgba(255,255,255,0.10); }
 
@@ -201,12 +209,13 @@
   #timelineBar{
     height: var(--timelineH);
     min-height: 140px;
+    max-height: 400px;
     overflow: hidden;
     display:flex;
     flex-direction:column;
   }
   #timelineCanvas{ flex: 1 1 auto; min-height: 0; }
-  #timelineHint{ padding-bottom: 8px; }
+  #timelineHint{ padding-bottom: 8px; max-height: 25px;}
   /* --- Collapsible panels: when fully dragged closed, only handle remains --- */
   #right.isCollapsed { display:none !important; }
   #timelineBar.isCollapsed { display:none !important; }
@@ -242,30 +251,262 @@
   .poseItem:last-child { border-bottom:none; }
   .poseItem.selected { outline: 2px solid rgba(255,255,255,0.35); outline-offset:-2px; background: rgba(255,255,255,.03); }
 
+  /* === Help modal === */
+  .modal { position:fixed; inset:0; z-index:80; }
+  .modalBackdrop { position:absolute; inset:0; background:rgba(0,0,0,0.55); }
+  .modalCard { position:relative; width:min(720px, calc(100vw - 28px)); max-height:calc(100vh - 28px);
+               margin:14px auto; background:var(--panel); border:1px solid var(--line);
+               border-radius:14px; overflow:hidden; box-shadow:0 12px 40px rgba(0,0,0,0.45); }
+  .modalHeader { display:flex; justify-content:space-between; align-items:center; padding:10px 12px; border-bottom:1px solid var(--line); }
+  .modalBody { padding:12px; overflow:auto; color:var(--text); }
+  .modalBody a { color:#9fd1ff; text-decoration:none; }
+  .modalBody a:hover { text-decoration:underline; }
 
+  /* === Watch click popup (tiny) === */
+  #watchPopup { position:fixed; z-index:90; background:rgba(16,23,32,0.98);
+                border:1px solid var(--line); border-radius:10px; padding:8px 10px;
+                font-size:12px; line-height:1.25; max-width:340px;
+                box-shadow:0 10px 24px rgba(0,0,0,0.40);   pointer-events:none; }
+  #watchPopup .row { display:flex; gap:8px; }
+  #watchPopup .k { color:var(--muted); min-width:54px; }
+  #watchPopup .v { color:var(--text); word-break:break-word; }
 
-    /* === Help modal === */
-    .modal { position:fixed; inset:0; z-index:80; }
-    .modalBackdrop { position:absolute; inset:0; background:rgba(0,0,0,0.55); }
-    .modalCard { position:relative; width:min(720px, calc(100vw - 28px)); max-height:calc(100vh - 28px);
-                 margin:14px auto; background:var(--panel); border:1px solid var(--line);
-                 border-radius:14px; overflow:hidden; box-shadow:0 12px 40px rgba(0,0,0,0.45); }
-    .modalHeader { display:flex; justify-content:space-between; align-items:center; padding:10px 12px; border-bottom:1px solid var(--line); }
-    .modalBody { padding:12px; overflow:auto; color:var(--text); }
-    .modalBody a { color:#9fd1ff; text-decoration:none; }
-    .modalBody a:hover { text-decoration:underline; }
+   /* tighten pose list */
+  .poseItem .sub { margin-top:3px; font-size:12px; color:var(--muted); }
 
-    /* === Watch click popup (tiny) === */
-    #watchPopup { position:fixed; z-index:90; background:rgba(16,23,32,0.98);
-                  border:1px solid var(--line); border-radius:10px; padding:8px 10px;
-                  font-size:12px; line-height:1.25; max-width:340px;
-                  box-shadow:0 10px 24px rgba(0,0,0,0.40);   pointer-events:none; }
-    #watchPopup .row { display:flex; gap:8px; }
-    #watchPopup .k { color:var(--muted); min-width:54px; }
-    #watchPopup .v { color:var(--text); word-break:break-word; }
+  /* Floating Info Window */
+  #floatingInfo {
+    position: fixed;
+    top: 80px;
+    left: 20px;
+    width: 80px;
+    min-width: 160px;
+    min-height: 61px;
+    max-width: 300px;
+    max-height: 450px;
+    background: rgba(16, 23, 32, 0.85);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    overflow: hidden;
+  }
 
-    /* tighten pose list */
-    .poseItem .sub { margin-top:3px; font-size:12px; color:var(--muted); }
+  #floatHeader {
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid var(--line);
+    cursor: grab;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    user-select: none;
+  }
+
+  #floatHeader:active { cursor: grabbing; }
+
+  #floatBody {
+    padding: 12px;
+    font-size: 14px;
+    flex: 1;
+    overflow-y: auto;
+  }
+
+.hidden { display: none !important; }
+
+/* Floating window container */
+#floatingInfo {
+  --float-bg: rgba(18, 18, 20, 0.92);
+  --float-border: rgba(255, 255, 255, 0.12);
+  --float-line: rgba(255, 255, 255, 0.10);
+  --float-text: rgba(255, 255, 255, 0.92);
+  --float-muted: rgba(255, 255, 255, 0.60);
+  --float-soft: rgba(255, 255, 255, 0.80);
+  --float-accent: rgba(110, 168, 255, 1);
+  --float-accent-bg: rgba(110, 168, 255, 0.14);
+
+  position: absolute;
+  right: 16px;
+  top: 16px;
+  width: 280px;
+  max-width: min(320px, calc(100vw - 32px));
+  color: var(--float-text);
+  background: var(--float-bg);
+  border: 1px solid var(--float-border);
+  border-radius: 14px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(15px);
+  -webkit-backdrop-filter: blur(10px);
+  overflow: hidden;
+
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+
+/* Header */
+#floatHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 10px 10px 12px;
+  border-bottom: 1px solid var(--float-line);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.float-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.float-title-text {
+  font-weight: 650;
+  font-size: 13px;
+  letter-spacing: 0.2px;
+}
+
+.float-subtitle {
+  color: var(--float-muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+/* Close button */
+#btnCloseFloat.iconBtn {
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+  border: 1px solid var(--float-line);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--float-muted);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+#btnCloseFloat.iconBtn:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.16);
+  color: var(--float-text);
+}
+
+#btnCloseFloat.iconBtn:active {
+  transform: translateY(0.5px);
+}
+
+#btnCloseFloat.iconBtn:focus-visible {
+  outline: 2px solid rgba(110, 168, 255, 0.7);
+  outline-offset: 2px;
+}
+
+/* Body */
+#floatBody {
+  padding: 10px 12px 12px 12px;
+}
+
+.float-section {
+  display: grid;
+  gap: 6px;
+}
+
+/* Rows */
+.float-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.float-row .k {
+  color: var(--float-muted);
+  font-weight: 550;
+  letter-spacing: 0.15px;
+}
+
+.float-row .v {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-weight: 650;
+  font-size: 12.25px;
+  color: var(--float-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.float-row .v.v-soft {
+  font-weight: 600;
+  color: var(--float-soft);
+}
+
+/* Divider */
+.divider {
+  margin: 10px 0;
+  height: 1px;
+  background: var(--float-line);
+}
+
+/* Watch block */
+.float-watch {
+  margin-top: 2px;
+  padding: 10px 10px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--float-line);
+  border-radius: 12px;
+}
+
+.float-watch-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.float-watch-time {
+  color: var(--float-muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+/* Chip used for clickable watch label */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(110, 168, 255, 0.35);
+  background: var(--float-accent-bg);
+  color: rgba(190, 215, 255, 0.98);
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: 0.15px;
+  user-select: none;
+}
+
+/* Resizer handle */
+#floatResizer {
+  height: 12px;
+  cursor: ns-resize;
+  background:
+    linear-gradient(to bottom, rgba(255,255,255,0.06), rgba(255,255,255,0.00));
+  border-top: 1px solid var(--float-line);
+}
+
+  /* Resizer Handle */
+  #floatResizer {
+    position: absolute;
+    right: 0; bottom: 0;
+    width: 15px; height: 15px;
+    cursor: nwse-resize;
+    background: linear-gradient(135deg, transparent 50%, var(--muted) 50%);
+    opacity: 0.3;
+  }
 
   </style>
 </head>
@@ -276,19 +517,20 @@
   <button id="btnPlay" class="iconBtn" title="Play/Pause" disabled>▶</button>
   <div class="chip">
     <span class="muted">Speed</span>
-    <select id="speedSelect" title="Playback speed">
+    <select id="speedSelect" title="Playback Speed Changer">
       <option value="0.25">0.25×</option>
       <option value="0.5">0.5×</option>
       <option value="1" selected>1×</option>
       <option value="2">2×</option>
       <option value="4">4×</option>
+      <option value="8">8×</option>
     </select>
   </div>
   <button id="btnFit" class="iconBtn" title="Maximize field (square)" disabled>⤢</button>
-
+  <button id="btnToggleFloat" class="iconBtn" title="Toggle Info Window">📋</button>
   <div class="chip">
     <span class="muted">Field</span>
-    <select id="fieldSelect" title="Field image">
+    <select id="fieldSelect" title="Field image Selector">
       <option value="">No field image</option>
     </select>
   </div>
@@ -296,7 +538,6 @@
   <button id="btnHelp" class="iconBtn" title="Help">?</button>
   <span class="grow muted" id="status">Drop a viewer JSON file.</span>
 </header>
-
 
 <div id="helpModal" class="modal" hidden>
   <div class="modalBackdrop"></div>
@@ -307,7 +548,7 @@
     </div>
     <div class="modalBody">
       <p style="margin-top:0">
-        This is an <b>offline viewer</b> for robot logs produced by the JerryForge logger demo project.
+        This is an offline viewer for robot logs produced by the JerryForge / SfxLib PROS library.
       </p>
       <p>
         Use it with JSON files generated by:
@@ -321,6 +562,7 @@
           <li><b>Field view</b>: robot path + pose, watches, hover/click to preview/lock.</li>
           <li><b>Timeline</b>: scrub through time; hover previews, click jumps.</li>
           <li><b>Sidebar</b>: config, watches list, poses list.</li>
+          <li><b>Floating info window</b>: shows details of hovered point, including closest watch values.</li>
         </ul>
       </div>
       <div style="margin-top:10px" class="muted">
@@ -328,6 +570,47 @@
       </div>
     </div>
   </div>
+</div>
+
+<div id="floatingInfo" class="hidden">
+  <div id="floatHeader">
+    <div class="float-title">
+      <span class="float-title-text">Point Details</span>
+      <span class="float-subtitle" id="fcount">Point: —/—</span>
+    </div>
+    <button id="btnCloseFloat" class="iconBtn" aria-label="Close">✕</button>
+  </div>
+
+  <div id="floatBody">
+    <div class="float-section">
+      <div class="float-row"><span class="k">X</span><span class="v" id="fx">—</span></div>
+      <div class="float-row"><span class="k">Y</span><span class="v" id="fy">—</span></div>
+      <div class="float-row"><span class="k">θ</span><span class="v" id="ft">—</span></div>
+      <div class="float-row"><span class="k">Time</span><span class="v" id="ftime">—</span></div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="float-section">
+      <div class="float-row"><span class="k">Avg Vel</span><span class="v" id="favg">—</span></div>
+      <div class="float-row"><span class="k">L Vel</span><span class="v" id="flv">—</span></div>
+      <div class="float-row"><span class="k">R Vel</span><span class="v" id="frv">—</span></div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="float-watch" id="fwatchblock">
+      <div class="float-watch-head">
+        <span class="chip" id="fwatchclickable">Closest Watch</span>
+        <span class="float-watch-time" id="fwatchtime">—</span>
+      </div>
+
+      <div class="float-row"><span class="k">Label</span><span class="v v-soft" id="fwatchlabel">—</span></div>
+      <div class="float-row"><span class="k">Value</span><span class="v v-soft" id="fwatchvalue">—</span></div>
+    </div>
+  </div>
+
+  <div id="floatResizer" aria-hidden="true"></div>
 </div>
 
 
@@ -377,11 +660,11 @@
                   <input id="robotImgScale" type="number" step="0.05" value="1" />
                 </div>
                 <div>
-                  <label>Img X Off (in)</label>
+                  <label>Img X Off</label>
                   <input id="robotImgOffX" type="number" step="0.25" value="0" />
                 </div>
                 <div>
-                  <label>Img Y Off (in)</label>
+                  <label>Img Y Off</label>
                   <input id="robotImgOffY" type="number" step="0.25" value="0" />
                 </div>
                 <div>
@@ -419,7 +702,7 @@
               <div style="font-weight:800; margin-bottom:6px">Stats</div>
             <div class="kvs" id="stats"></div>
           
-</div>
+</div> 
         </details>
       </div>
 
@@ -472,6 +755,7 @@
     <div id="timelineTop">
       <div id="timelineLeft">
         <span class="pill" id="timePill">Time: —</span>
+        <span class="pill" id="deltaPill">Δ: —</span> 
         <span class="pill" id="pointPill">Point: —/—</span>
       </div>
       <span class="pill poseReadout" id="posePill">
@@ -514,6 +798,7 @@
   const vSplit = document.getElementById('vSplit');
   const hSplit = document.getElementById('hSplit');
   const timePill = document.getElementById('timePill');
+  const deltaPill = document.getElementById('deltaPill');
   const pointPill = document.getElementById('pointPill');
   const posePill = document.getElementById('posePill');
 
@@ -561,11 +846,20 @@
   const FIELD_BOUNDS_IN = { minX: -72, maxX: 72, minY: -72, maxY: 72, pad: 30 };
 
   const WATCH_TOL_MS = 40; // Controls the ± time that determines which pose a watch attaches to
-  const COLLAPSE_PX = 60; // When the sidebar / timeline collapses away
+  const COLLAPSE_PX_TIMELINE = 140; // When the timeline collapses away
+  const COLLAPSE_PX_SIDEBAR = 275; 
+
   
   const HOVER_PIXEL_TOL = 14;
-  const TRACK_HOVER_PAD_PX = 8; // How close to the track before snapping on
+  const TRACK_HOVER_PAD_PX = 12; // How close to the track before snapping on
 
+  const OFFSET_MAX = 100; // Max offset in either direction
+
+  const CANVAS_ZOOM_MAX = 9; // Max zoom in
+  const CANVAS_ZOOM_MIN = 0.7; // Max zoom out
+
+  const minW = 50, maxW = 400;
+  const minH = 49, maxH = 600; // Bring minH back to 241
   let data = null;
 
   // Raw poses are stored in FILE units; we convert to inches for rendering.
@@ -826,7 +1120,7 @@
 
   // -------- field images --------
   function loadFieldOptions() {
-    fieldSelect.innerHTML = `<option value="">No field image</option>`;
+    fieldSelect.innerHTML = `<option value="no">No field image</option>`;
     for (const f of FIELD_IMAGES) {
       const opt = document.createElement('option');
       opt.value = f.key;
@@ -1580,6 +1874,156 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
     }
   }
 
+  // Timeline time readout
+  function updateDeltaReadout() {
+    if (!data || !rawPoses.length) return;
+    const lockedTime = rawPoses[selectedIndex]?.t || 0;
+    
+    // hoverTimelineTime is the time currently under the cursor
+    const hoveredTime = hoverTimelineTime !== null ? hoverTimelineTime : lockedTime;
+    const delta = Math.abs(hoveredTime - lockedTime) / 1000;
+    if (deltaPill) {
+    deltaPill.textContent = `Δ: ${delta.toFixed(2)}s`;    
+    }
+  }
+
+  // --- Floating Window Logic ---
+  const floatWin = document.getElementById('floatingInfo');
+  const btnToggleFloat = document.getElementById('btnToggleFloat');
+  const btnCloseFloat = document.getElementById('btnCloseFloat');
+  const floatHeader = document.getElementById('floatHeader');
+  const floatResizer = document.getElementById('floatResizer');
+  
+  // Toggle Visibility
+  btnToggleFloat.onclick = (e) => {
+    e.stopPropagation(); // Prevents event bubbling
+    floatWin.classList.toggle('hidden');
+  };
+
+  btnCloseFloat.onclick = (e) => {
+    e.stopPropagation();
+    floatWin.classList.add('hidden');
+  };
+
+  // Dragging Logic
+  let isDragging = false, dragStart = { x: 0, y: 0 };
+  floatHeader.onmousedown = (e) => {
+    isDragging = true;
+    dragStart = { x: e.clientX - floatWin.offsetLeft, y: e.clientY - floatWin.offsetTop };
+  };
+
+  // Resizing Logic
+  let isResizing = false;
+  floatResizer.onmousedown = (e) => {
+    isResizing = true;
+    e.preventDefault();
+  };
+
+  window.addEventListener('mousemove', (e) => {
+    if (isDragging) {
+      floatWin.style.left = `${e.clientX - dragStart.x}px`;
+      floatWin.style.top = `${e.clientY - dragStart.y}px`;
+    }
+    
+    if (isResizing) {
+      // 1. Calculate the intended new size
+      let newWidth = e.clientX - floatWin.offsetLeft;
+      let newHeight = e.clientY - floatWin.offsetTop;
+
+      // 3. Clamp the values
+      newWidth = Math.max(minW, Math.min(newWidth, maxW));
+      newHeight = Math.max(minH, Math.min(newHeight, maxH));
+
+      // 4. Apply to the element
+      floatWin.style.width = `${newWidth}px`;
+      floatWin.style.height = `${newHeight}px`;
+    }
+  });
+
+  window.addEventListener('mouseup', () => {
+    isDragging = false;
+    isResizing = false;
+  });
+
+  function findTemporallyClosestWatch(targetMs) {
+    if (!watches || !watches.length) return null;
+
+    let closest = null;
+    let minDiff = Infinity;
+
+    for (const w of watches) {
+      const diff = Math.abs(w.t - targetMs);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closest = w;
+      }
+    }
+    return { watch: closest, diffMs: minDiff };
+  }
+
+  // Data Update Function
+  function updateFloatingInfo(pose, idx) {
+    if (floatWin.hidden) {
+      document.getElementById('fx').textContent = "—";
+      document.getElementById('fy').textContent = "—";
+      document.getElementById('ft').textContent = "—";
+      document.getElementById('ftime').textContent = "—";
+      document.getElementById('favg').textContent = "—";
+      document.getElementById('flv').textContent = "—";
+      document.getElementById('frv').textContent = "—";
+      document.getElementById('fcount').textContent = "Point: —/—";
+      return;
+    }
+
+    document.getElementById('fx').textContent = fmtNum(pose.x, 2);
+    document.getElementById('fy').textContent = fmtNum(pose.y, 2);
+    document.getElementById('ft').textContent = fmtNum(pose.theta, 2) + "°";
+    document.getElementById('ftime').textContent = fmtNum(pose.t / 1000, 2) + "s";
+    
+    const l = pose.l_vel || 0;
+    const r = pose.r_vel || 0;
+    
+    document.getElementById('favg').textContent = fmtNum((l + r) / 2, 2);
+    document.getElementById('flv').textContent = fmtNum(l, 2);
+    document.getElementById('frv').textContent = fmtNum(r, 2);
+    
+    document.getElementById('fcount').textContent = `Point: ${idx + 1}/${rawPoses.length}`;
+
+    // Waypoint info
+    const result = findTemporallyClosestWatch(pose.t);
+    const waypointTime = document.getElementById('fwatchtime');
+    const waypointLabel = document.getElementById('fwatchlabel');
+    const waypointValue = document.getElementById('fwatchvalue');
+    const clickable = document.getElementById('fwatchclickable');
+
+    if (result) {
+      const { watch, diffMs } = result;
+      const direction = (watch.t > pose.t) ? "ahead" : "ago";
+      const seconds = (diffMs / 1000).toFixed(1);
+
+      // Display the label and the time offset
+      waypointLabel.textContent = ` ${watch.label}`;
+      waypointValue.textContent = ` ${watch.value}`;
+      waypointTime.textContent = ` ${seconds}s ${direction}`;
+      
+      // Clicking the readout jumps exactly to that waypoint
+      clickable.style.cursor = "pointer";
+      clickable.onclick = () => {
+        playTimeMs = watch.t;
+        selectedIndex = findFloorIndexByTime(watch.t);
+        updatePoseReadout();
+        requestDrawAll();
+      };
+    } else {
+      clickable.textContent = "—";
+      waypointLabel.textContent = " —";
+      waypointValue.textContent = " —";
+      waypointTime.textContent = " —";
+      clickable.style.cursor = "default";
+      clickable.onclick = null;
+    }
+  }
+
   // -------- pose readout --------
   function updatePoseReadout() {
     if (!data || !rawPoses.length) {
@@ -1615,7 +2059,7 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
     }
 
     const total = rawPoses.length;
-    timePill.textContent = (t == null) ? "Time: —" : `Time: ${Math.round(t)}ms`;
+    timePill.textContent = (t == null) ? "Time: —" : `Time: ${(t / 1000).toFixed(2)}s`;
     pointPill.textContent = `Point: ${Math.max(1, idx+1)}/${total}`;
 
     const spRaw = (p?.speed_raw != null) ? p.speed_raw : (rawPoses[idx]?.speed_raw ?? null);
@@ -1624,6 +2068,8 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
     posePill.textContent = p
       ? `X: ${fmtNum(p.x,1)}  Y: ${fmtNum(p.y,1)}  θ: ${fmtNum(p.theta,1)}°  Speed: ${fmtNum(spRaw,2)}`
       : "X: —  Y: —  θ: —  Speed: —";
+    updateDeltaReadout();
+    updateFloatingInfo(p, idx);  
   }
 
   // -------- fit --------
@@ -1659,17 +2105,17 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
     canvas.style.top = '';
     canvas.style.width = '100%';
     canvas.style.height = '100%';
-    if (squareMode && !preserveBounds) {
+    if (!preserveBounds) {
       bounds = { ...FIELD_BOUNDS_IN };
       bounds.pad = FIELD_BOUNDS_IN.pad;
     }
+
     resizeCanvas();
     computeTransform();
     requestDrawAll();
   }
 
-  function toggleSquareMode() {
-    squareMode = true;
+  function resetFieldPosition() {
     resetView();
     updateFieldLayout(false); // sets full-field bounds + square layout
     btnFit.textContent = '⤢';
@@ -1677,7 +2123,7 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
   }
 
   function clampZoom(z) {
-    return clamp(z, 0.2, 12);
+    return clamp(z, CANVAS_ZOOM_MIN, CANVAS_ZOOM_MAX);
   }
 
   canvas.addEventListener('wheel', (e) => {
@@ -1772,8 +2218,6 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
 
   canvas.addEventListener('pointerup', endPan);
   canvas.addEventListener('pointercancel', endPan);
-
-
 
   // -------- track hover/lock --------
   function pickTrackPose(clientX, clientY) {
@@ -2137,6 +2581,7 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
       startH = getTimelineH();
       document.body.style.cursor = 'row-resize';
       e.preventDefault();
+
     });
 
     window.addEventListener('mousemove', (e) => {
@@ -2145,7 +2590,7 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
         const w = window.innerWidth;
         let next = clamp(startW - dx, 0, Math.max(0, w - 240));
 
-        if (next <= COLLAPSE_PX) {
+        if (next <= COLLAPSE_PX_SIDEBAR) {
           next = 0;
           rightEl.classList.add('isCollapsed');
         } else {
@@ -2162,13 +2607,14 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
         const h = window.innerHeight;
         let next = clamp(startH - dy, 0, Math.max(0, Math.floor(h * 0.80)));
 
-        if (next <= COLLAPSE_PX) {
+        if (next <= COLLAPSE_PX_TIMELINE) {
           next = 0;
           timelineBar.classList.add('isCollapsed');
         } else {
           timelineBar.classList.remove('isCollapsed');
           lastTimelineH = next;
         }
+
         setTimelineH(next);
         resizeTimeline();
         resizeCanvas();
@@ -2181,8 +2627,8 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
         draggingH = false;
         document.body.style.cursor = '';
         // If user re-expands from collapsed by dragging, restore visibility automatically
-        if (getSidebarW() > COLLAPSE_PX) rightEl.classList.remove('isCollapsed');
-        if (getTimelineH() > COLLAPSE_PX) timelineBar.classList.remove('isCollapsed');
+        if (getSidebarW() > COLLAPSE_PX_SIDEBAR) rightEl.classList.remove('isCollapsed');
+        if (getTimelineH() > COLLAPSE_PX_TIMELINE) timelineBar.classList.remove('isCollapsed');
         resizeCanvas();
         resizeTimeline();
       }
@@ -2191,20 +2637,20 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
     // double-click splitters to toggle collapse/restore
     vSplit.addEventListener('dblclick', () => {
       const cur = getSidebarW();
-      if (cur <= COLLAPSE_PX) {
-        setSidebarW(Math.max(240, lastSidebarW));
+      if (cur <= COLLAPSE_PX_SIDEBAR) {
+        setSidebarW(Math.max(1, lastSidebarW));
         rightEl.classList.remove('isCollapsed');
       } else {
         lastSidebarW = cur;
         setSidebarW(0);
         rightEl.classList.add('isCollapsed');
       }
-      resizeCanvas(); resizeTimeline();
+      resizeCanvas(); resizeTimeline(); 
     });
 
     hSplit.addEventListener('dblclick', () => {
       const cur = getTimelineH();
-      if (cur <= COLLAPSE_PX) {
+      if (cur <= COLLAPSE_PX_TIMELINE) {
         setTimelineH(Math.max(160, lastTimelineH));
         timelineBar.classList.remove('isCollapsed');
       } else {
@@ -2212,7 +2658,10 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
         setTimelineH(0);
         timelineBar.classList.add('isCollapsed');
       }
-      resizeTimeline(); resizeCanvas();
+        next = Math.min(300, next);
+        setTimelineH(next);
+
+        resizeTimeline(); resizeCanvas();
     });
   })();
 
@@ -2253,14 +2702,14 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
     const my = toNumMaybe(obj?.meta?.offset_y);
     const mt = toNumMaybe(obj?.meta?.offset_theta);
 
-    offXEl.value = (typeof mx === "number" && isFinite(mx)) ? String(clamp(mx, -99999, 99999)) : "0";
-    offYEl.value = (typeof my === "number" && isFinite(my)) ? String(clamp(my, -99999, 99999)) : "0";
-    offThetaEl.value = (typeof mt === "number" && isFinite(mt)) ? String(clamp(mt, -3600, 3600)) : "0";
+    offXEl.value = (typeof mx === "number" && isFinite(mx)) ? String(clamp(mx, -OFFSET_MAX, OFFSET_MAX)) : "0";
+    offYEl.value = (typeof my === "number" && isFinite(my)) ? String(clamp(my, -OFFSET_MAX, OFFSET_MAX)) : "0";
+    offThetaEl.value = (typeof mt === "number" && isFinite(mt)) ? String(clamp(mt, -OFFSET_MAX, OFFSET_MAX)) : "0";
     updateOffsetsFromInputs();
 
     computeSpeedNorm();
 
-    fmt.textContent = `${obj.format || "unknown"} v${obj.version ?? "?"}`;
+    fmt.textContent = `v${obj.version ?? "?"}`;
 
     selectedWatch = null;
     selectedIndex = 0;
@@ -2387,7 +2836,7 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
     playRate = Number(speedSelect.value) || 1;
   });
 
-  btnFit.addEventListener('click', () => toggleSquareMode());
+  btnFit.addEventListener('click', () => resetFieldPosition());
 
   fieldSelect.addEventListener('change', (e) => loadFieldImage(e.target.value));
 
@@ -2460,6 +2909,7 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
     updateFieldLayout(true); // keep bounds, recompute square sizing
     resizeTimeline();
   });
+
   updateFieldLayout(false);
   resizeTimeline();
   if (robotImgControlsEl) robotImgControlsEl.hidden = true;

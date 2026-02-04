@@ -209,7 +209,7 @@ void Logger::makeTimestampedFilename_() {
   struct tm *tstruct = localtime(&now);
 
   if (tstruct->tm_year < 100) {
-    printf("[DEBUG]: VEX RTC Inaccurate. Falling back to program duration.\n");
+    printf("[DEBUG]: VEX RTC Inaccurate. Falling back to program duration and last upload date.\n");
     snprintf(currentFilename_, sizeof(currentFilename_), "/usd/%s_%u-%u.log",
              date, pros::millis() / 1000, pros::millis());
   } else {
@@ -492,7 +492,7 @@ void Logger::printWatches() {
       label = overrideLabel;
 
     if (config_.outputForViewer.load()) {
-      // Add watch tag and add comma separator 
+      // Add watch tag and add comma separators
       finalOutput = std::string("[WATCH],") +
                     std::to_string(nowMs) + 
                     "," + levelToString_(lvl) 
