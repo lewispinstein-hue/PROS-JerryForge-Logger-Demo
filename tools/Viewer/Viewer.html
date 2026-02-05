@@ -6,8 +6,9 @@
   <title>JerryForge Viewer (Offline)</title>
   <style>
     :root { 
-      --sidebarW: 360px;
-      --timelineH: 260px;
+      --rightSidebarW: 360px;
+            --leftSidebarW: 360px;
+--timelineH: 260px;
       --toolbarH: 54px;
       --bg:#0b0f14; 
       --panel:#101720; 
@@ -202,12 +203,28 @@
   }
   .row{
     display: grid;
-    grid-template-columns: 1fr 8px var(--sidebarW);
+    grid-template-columns: var(--leftSidebarW) 8px 1fr 8px var(--rightSidebarW);
     overflow: hidden;
     min-height: 0;
   }
+  /* lock grid items to columns so hiding/collapsing one panel doesn't reflow everything */
+  #left{ grid-column: 1; }
+  #vSplitL{ grid-column: 2; }
+  #canvasWrap{ grid-column: 3; min-width: 100px; min-height: 100px; }
+  #vSplit{ grid-column: 4; }
+  #right{ grid-column: 5; min-width: 240px; overflow:auto; }
+
+  /* when left is collapsed, keep the splitter at the edge */
+  .row.leftCollapsed{
+    grid-template-columns: 0px 8px 1fr 8px var(--rightSidebarW);
+  }
+
   #canvasWrap{ min-width:100; min-height:100; }
   #right{ min-width: 240px; overflow:auto; }
+
+  #left{ min-width: 220px; overflow:auto; }
+  #left.isCollapsed { display:none !important; }
+
   .splitterV{
     cursor: col-resize;
     background: rgba(255,255,255,0.06);
@@ -603,7 +620,120 @@
     opacity: 0.3;
   }
 
-  </style>
+  
+    /* Left sidebar: fixed top bar + scrollable live window */
+  #left{
+    min-width: 220px;
+    overflow: hidden;              /* prevent sideways scroll on the sidebar itself */
+    border-right: 1px solid var(--line);
+    background: rgba(16,23,32,.7);
+    backdrop-filter: blur(6px);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  #left *{ min-width: 0; }
+
+  .leftTopBar{
+    flex: 0 0 auto;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--line);
+    /* keep visual stable while resizing */
+  }
+
+  /* keep controls pinned and sized */
+  .leftTopRow{
+    display: grid;
+    grid-template-columns: auto auto 1fr auto;
+    align-items: center;
+    gap: 8px;
+  }
+
+  /* smaller pills for Stop/Connect */
+  #left .pillAction{
+    height: 28px;
+    min-width: 64px;
+    padding: 0 10px;
+    border-radius: 12px;
+    font-size: 13px;
+    justify-content: center;
+  }
+
+  .leftRefreshChip{
+    justify-self: end;
+    display:flex;
+    align-items:center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 14px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.03);
+    height: 34px;
+    box-sizing: border-box;
+    white-space: nowrap;
+  }
+
+  /* "Refresh" inside the dropdown chip */
+  .leftRefreshBtn{
+    height: 24px;
+    padding: 0 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(0,0,0,0.25);
+    color: var(--muted);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .leftRefreshBtn:hover{
+    color: var(--text);
+    border-color: rgba(255,255,255,0.20);
+    background: rgba(255,255,255,0.06);
+  }
+
+  .leftRefreshChip select{
+    width: 92px;                  /* fixed so it doesn't wiggle with resize */
+    background: rgba(0,0,0,0.25);
+    border: 1px solid rgba(255,255,255,0.12);
+    color: var(--muted);
+    border-radius: 10px;
+    padding: 4px 8px;
+    height: 24px;
+  }
+  .leftRefreshChip:hover select{ color: var(--text); }
+
+  .leftBody{
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 12px 14px;
+    overflow: hidden;
+  }
+
+  #liveWin{
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    padding: 10px 12px;
+    border-radius: 14px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(0,0,0,0.18);
+    color: #e9eef7;
+    outline: none;
+    resize: none;
+
+    /* no sideways scroll + wrap long lines */
+    overflow-y: auto;
+    overflow-x: hidden;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+
+    line-height: 1.35;
+  }
+  .monoText{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; }
+
+  .iconBtn.isOn{ border-color: rgba(120,220,160,0.55); box-shadow: 0 0 0 1px rgba(120,220,160,0.15) inset; }
+
+</style>
 </head>
 <body>
 <header class="toolbar">
@@ -621,7 +751,7 @@
       <option value="8">8×</option>
     </select>
   </div>
-  <button id="btnFit" class="iconBtn" title="Maximize field (square)" disabled>⤢</button>
+  <button id="btnFit" class="iconBtn" title="Maximize field (square)">⤢</button>
   <button id="btnToggleFloat" class="iconBtn" title="Toggle Info Window">📋</button>
   <div class="chip">
     <span class="muted">Field</span>
@@ -716,6 +846,36 @@
 
 <div class="app">
   <div class="row">
+
+    <div id="left">
+      <div class="leftTopBar">
+        <div class="leftTopRow">
+          <button class="iconBtn pillAction" id="btnLeftStop" title="Stop">Stop</button>
+          <button class="iconBtn pillAction" id="btnLeftConnect" title="Connect">Connect</button>
+
+          <div></div>
+
+          <div class="leftRefreshChip" title="Refresh + interval">
+            <button class="leftRefreshBtn" id="btnLeftRefresh" type="button">Refresh</button>
+            <select id="leftRefreshInterval" aria-label="Refresh interval">
+              <option value="0">off</option>
+              <option value="250">250ms</option>
+              <option value="500" selected>500ms</option>
+              <option value="1000">1s</option>
+              <option value="2000">2s</option>
+              <option value="5000">5s</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="leftBody">
+        <textarea id="liveWin" class="monoText" readonly wrap="soft" spellcheck="false" aria-label="Live window"></textarea>
+      </div>
+    </div>
+
+    <div id="vSplitL" class="splitterV" title="Drag to resize"></div>
+
     <div id="canvasWrap">
       <canvas id="c"></canvas>
     </div>
@@ -897,6 +1057,11 @@
   const btnFit = document.getElementById('btnFit');
   const btnFile = document.getElementById('btnFile');
   const btnHelp = document.getElementById('btnHelp');
+  const btnLeftStop = document.getElementById('btnLeftStop');
+  const btnLeftConnect = document.getElementById('btnLeftConnect');
+  const btnLeftRefresh = document.getElementById('btnLeftRefresh');
+  const leftRefreshInterval = document.getElementById('leftRefreshInterval');
+  const liveWin = document.getElementById('liveWin');
   const helpModal = document.getElementById('helpModal');
   const btnHelpClose = document.getElementById('btnHelpClose');
   const speedSelect = document.getElementById('speedSelect');
@@ -909,6 +1074,10 @@
   const posePill = document.getElementById('posePill');
 
   const rightEl = document.getElementById('right');
+  const leftEl = document.getElementById('left');
+  const vSplitL = document.getElementById('vSplitL');
+  const rowGrid = document.querySelector('.row');
+
   const timelineBar = document.getElementById('timelineBar');
   const timelineTop = document.getElementById('timelineTop');
   const timelineHint = document.getElementById('timelineHint');
@@ -954,6 +1123,10 @@
   const WATCH_TOL_MS = 40; // Controls the ± time that determines which pose a watch attaches to
   const COLLAPSE_PX_TIMELINE = 140; // When the timeline collapses away
   const COLLAPSE_PX_SIDEBAR = 275; 
+
+  const COLLAPSE_PX_LEFTSIDEBAR = 220; // When the left sidebar collapses away
+  const DBLCLICK_COLLAPSE_LEFTSIDEBAR = true;
+  const MAX_PX_LIVEWIN = 420; // Max width for left live window panel
 
   const MAX_TIMELINE_H_PX = 350; // Height at which timeline stops growing
   const MAX_SIDEBAR_W_PX = 400; // Width at which sidebar stops growing
@@ -1550,7 +1723,7 @@
       div.innerHTML = `
         <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap">
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <span class="pill level" style="background:${st.fill};color:${st.fill}">${escapeHtml(st.name)}</span>
+            <span class="pill level" style="background:${st.fill};color:${st.text}">${escapeHtml(st.name)}</span>
             <span style="font-weight:850;word-break:break-word">${escapeHtml(label)}</span>
           </div>
           <div class="muted">${t != null ? (t + "ms") : ""}</div>
@@ -2283,7 +2456,6 @@
   }
 
   canvas.addEventListener('wheel', (e) => {
-    if (!data) return;
     e.preventDefault();
 
     const rect = canvas.getBoundingClientRect();
@@ -2313,7 +2485,6 @@
   }, { passive:false });
 
   canvas.addEventListener('pointerdown', (e) => {
-    if (!data) return;
     if (e.button !== 0) return; // left only
 
     // Arm panning on any press. If this turns into a drag, we pan the view.
@@ -2725,29 +2896,111 @@
     }
   });
 
-  // -------- splitters with collapse --------
+  
+  // -------- Left sidebar controls (Stop / Connect / Refresh) --------
+  let leftConnected = false;
+  let leftRefreshTimer = null;
+  let leftRefreshMs = parseInt(leftRefreshInterval?.value || "500", 10) || 500;
+
+  function stopLeftRefresh() {
+    if (leftRefreshTimer) {
+      clearInterval(leftRefreshTimer);
+      leftRefreshTimer = null;
+    }
+  }
+
+  function startLeftRefresh() {
+    stopLeftRefresh();
+    if (!leftConnected) return;
+    if (!leftRefreshMs || leftRefreshMs <= 0) return;
+    leftRefreshTimer = setInterval(() => {
+      doLeftRefresh();
+    }, leftRefreshMs);
+  }
+
+  function doLeftRefresh() {
+    // Intentionally no UI logging here.
+    // Hook your real data source into this function later.
+  }
+
+  btnLeftStop?.addEventListener('click', () => {
+    leftConnected = false;
+    stopLeftRefresh();
+    btnLeftConnect?.classList.remove('isOn');
+  });
+
+  btnLeftConnect?.addEventListener('click', () => {
+    leftConnected = !leftConnected;
+    if (leftConnected) {
+      btnLeftConnect?.classList.add('isOn');
+      doLeftRefresh();
+      startLeftRefresh();
+    } else {
+      btnLeftConnect?.classList.remove('isOn');
+      stopLeftRefresh();
+    }
+  });
+
+  btnLeftRefresh?.addEventListener('click', () => {
+    doLeftRefresh();
+  });
+
+  leftRefreshInterval?.addEventListener('change', () => {
+    leftRefreshMs = parseInt(leftRefreshInterval.value || "0", 10) || 0;
+    startLeftRefresh();
+  });
+
+// -------- splitters with collapse --------
   (function setupSplitters() {
     let draggingV = false;
     let startX = 0;
     let startW = 0;
 
-    let lastSidebarW = 360;
+    let lastRightSidebarW = 360;
+    let lastLeftSidebarW = 360;
+    // ensure grid state matches persisted widths on load
+    try {
+      if (getLeftSidebarW() <= 1) { leftEl.classList.add('isCollapsed'); rowGrid && rowGrid.classList.add('leftCollapsed'); }
+    } catch (e) {}
 
-    const getSidebarW = () => {
-      const v = getComputedStyle(root).getPropertyValue('--sidebarW').trim();
+
+    const getRightSidebarW = () => {
+      const v = getComputedStyle(root).getPropertyValue('--rightSidebarW').trim();
       const n = parseFloat(v);
       return isFinite(n) ? n : 360;
     };
-    const setSidebarW = (px) => {
+    const setRightSidebarW = (px) => {
       px = Math.min(px, MAX_SIDEBAR_W_PX);
-      root.style.setProperty('--sidebarW', `${px}px`);
+      root.style.setProperty('--rightSidebarW', `${px}px`);
 
     }
+
+    const getLeftSidebarW = () => {
+      const v = getComputedStyle(root).getPropertyValue('--leftSidebarW').trim();
+      const n = parseFloat(v);
+      return isFinite(n) ? n : 360;
+    };
+    const setLeftSidebarW = (px) => {
+      px = Math.min(px, MAX_PX_LIVEWIN);
+      root.style.setProperty('--leftSidebarW', `${px}px`);
+    };
+
+    let draggingVL = false;
+    let startXL = 0;
+    let startWL = 0;
+
+    vSplitL.addEventListener('mousedown', (e) => {
+      draggingVL = true;
+      startXL = e.clientX;
+      startWL = getLeftSidebarW();
+      document.body.style.cursor = 'col-resize';
+      e.preventDefault();
+    });
 
     vSplit.addEventListener('mousedown', (e) => {
       draggingV = true;
       startX = e.clientX;
-      startW = getSidebarW();
+      startW = getRightSidebarW();
       document.body.style.cursor = 'col-resize';
       e.preventDefault();
     });
@@ -2777,6 +3030,25 @@
     });
 
     window.addEventListener('mousemove', (e) => {
+      if (draggingVL) {
+        const dx = e.clientX - startXL;
+        const w = window.innerWidth;
+        let next = clamp(startWL + dx, 0, Math.max(0, w - 240));
+
+        if (next <= COLLAPSE_PX_LEFTSIDEBAR) {
+          next = 0;
+          leftEl.classList.add('isCollapsed');
+          rowGrid && rowGrid.classList.add('leftCollapsed');
+        } else {
+          leftEl.classList.remove('isCollapsed');
+          rowGrid && rowGrid.classList.remove('leftCollapsed');
+          lastLeftSidebarW = next;
+        }
+        setLeftSidebarW(next);
+        resizeCanvas();
+        resizeTimeline();
+      }
+
       if (draggingV) {
         const dx = e.clientX - startX;
         const w = window.innerWidth;
@@ -2787,9 +3059,9 @@
           rightEl.classList.add('isCollapsed');
         } else {
           rightEl.classList.remove('isCollapsed');
-          lastSidebarW = next;
+          lastRightSidebarW = next;
         }
-        setSidebarW(next);
+        setRightSidebarW(next);
         resizeCanvas();
         resizeTimeline();
       }
@@ -2814,12 +3086,13 @@
     });
 
     window.addEventListener('mouseup', () => {
-      if (draggingV || draggingH) {
+      if (draggingV || draggingH || draggingVL) {
         draggingV = false;
         draggingH = false;
+        draggingVL = false;
         document.body.style.cursor = '';
         // If user re-expands from collapsed by dragging, restore visibility automatically
-        if (getSidebarW() > COLLAPSE_PX_SIDEBAR) rightEl.classList.remove('isCollapsed');
+        if (getRightSidebarW() > COLLAPSE_PX_SIDEBAR) rightEl.classList.remove('isCollapsed');
         if (getTimelineH() > COLLAPSE_PX_TIMELINE) timelineBar.classList.remove('isCollapsed');
         resizeCanvas();
         resizeTimeline();
@@ -2827,14 +3100,31 @@
     });
 
     // double-click splitters to toggle collapse/restore
+    vSplitL.addEventListener('dblclick', () => {
+      if (!DBLCLICK_COLLAPSE_LEFTSIDEBAR) return;
+      const cur = getLeftSidebarW();
+      if (cur <= COLLAPSE_PX_LEFTSIDEBAR) {
+        setLeftSidebarW(Math.max(1, lastLeftSidebarW));
+        leftEl.classList.remove('isCollapsed');
+        rowGrid && rowGrid.classList.remove('leftCollapsed');
+      } else {
+        lastLeftSidebarW = cur;
+        setLeftSidebarW(0);
+        leftEl.classList.add('isCollapsed');
+        rowGrid && rowGrid.classList.add('leftCollapsed');
+      }
+      resizeCanvas();
+      resizeTimeline();
+    });
+
     vSplit.addEventListener('dblclick', () => {
-      const cur = getSidebarW();
+      const cur = getRightSidebarW();
       if (cur <= COLLAPSE_PX_SIDEBAR) {
-        setSidebarW(Math.max(1, lastSidebarW));
+        setRightSidebarW(Math.max(1, lastRightSidebarW));
         rightEl.classList.remove('isCollapsed');
       } else {
-        lastSidebarW = cur;
-        setSidebarW(0);
+        lastRightSidebarW = cur;
+        setRightSidebarW(0);
         rightEl.classList.add('isCollapsed');
       }
         resetFieldPosition();
@@ -2950,7 +3240,7 @@
 
     setStatus(`Loaded ${rawPoses.length} poses, ${watches.length} watches.`);
     btnPlay.disabled = rawPoses.length < 2;
-    btnFit.disabled = rawPoses.length < 1;
+    btnFit.disabled = false;
     fieldSelect.disabled = false;
 
     updatePoseReadout();
