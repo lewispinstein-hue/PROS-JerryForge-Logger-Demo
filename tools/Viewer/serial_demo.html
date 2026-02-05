@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Web Serial Prototype</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; padding: 16px; line-height: 1.3; }
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+    select, button { padding: 8px 10px; font-size: 14px; }
+    button { cursor: pointer; }
+    textarea { width: 100%; height: 55vh; padding: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+    .muted { color: #666; font-size: 12px; }
+    .pill { padding: 2px 8px; border: 1px solid #ddd; border-radius: 999px; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h3 style="margin:0 0 10px 0;">Web Serial Stream Prototype</h3>
+
+  <div class="row">
+    <button id="btnRequest">Add / Select Device…</button>
+    <select id="portSelect" disabled></select>
+    <label class="pill">Baud <input id="baud" type="number" value="115200" style="width:90px; border:none; outline:none;"></label>
+    <button id="btnStart" disabled>Start</button>
+    <button id="btnStop" disabled>Stop</button>
+    <span id="status" class="muted">Idle</span>
+  </div>
+
+  <div class="muted" style="margin-bottom:8px;">
+    Requires Chrome/Edge and HTTPS or http://localhost. “Add / Select Device…” must be clicked to grant permission.
+  </div>
+
+  <textarea id="log" placeholder="Incoming text will appear here..." readonly></textarea>
+
+  <script>
+    const btnRequest = document.getElementById("btnRequest");
+    const portSelect = document.getElementById("portSelect");
+    const baudInput = document.getElementById("baud");
+    const btnStart = document.getElementById("btnStart");
+    const btnStop  = document.getElementById("btnStop");
+    const statusEl = document.getElementById("status");
+    const logEl    = document.getElementById("log");
+
+    let ports = [];
+    let activePort = null;
+    let reader = null;
+    let keepReading = false;
+
+    function setStatus(s) { statusEl.textContent = s; }
+
+    function portLabel(p, i) {
+      const info = p.getInfo ? p.getInfo() : {};
+      const vid = info.usbVendorId ? info.usbVendorId.toString(16) : "????";
+      const pid = info.usbProductId ? info.usbProductId.toString(16) : "????";
+      return `Port ${i+1} (VID:0x${vid} PID:0x${pid})`;
+    }
+
+    async function refreshPorts(selectActive = true) {
+      ports = await navigator.serial.getPorts();
+      portSelect.innerHTML = "";
+
+      if (!ports.length) {
+        portSelect.disabled = true;
+        btnStart.disabled = true;
+        setStatus("No devices authorized yet. Click “Add / Select Device…”");
+        return;
+      }
+
+      ports.forEach((p, i) => {
+        const opt = document.createElement("option");
+        opt.value = String(i);
+        opt.textContent = portLabel(p, i);
+        portSelect.appendChild(opt);
+      });
+
+      portSelect.disabled = false;
+      if (selectActive && activePort) {
+        const idx = ports.indexOf(activePort);
+        if (idx >= 0) portSelect.value = String(idx);
+      }
+
+      btnStart.disabled = false;
+      setStatus("Ready");
+    }
+
+    function appendLog(text) {
+      logEl.value += text;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    async function startStreaming() {
+      if (keepReading) return;
+
+      const idx = Number(portSelect.value);
+      activePort = ports[idx];
+      if (!activePort) return;
+
+      const baudRate = Number(baudInput.value) || 115200;
+
+      await activePort.open({ baudRate });
+      const decoder = new TextDecoder();
+
+      keepReading = true;
+      btnStart.disabled = true;
+      btnStop.disabled = false;
+      btnRequest.disabled = true;
+      portSelect.disabled = true;
+      setStatus(`Streaming @ ${baudRate} baud…`);
+
+      reader = activePort.readable.getReader();
+
+      try {
+        while (keepReading) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          if (value) appendLog(decoder.decode(value, { stream: true }));
+        }
+      } catch (err) {
+        appendLog(`\n[ERROR] ${err?.message || String(err)}\n`);
+      } finally {
+        try { reader.releaseLock(); } catch {}
+        reader = null;
+        try { await activePort.close(); } catch {}
+        keepReading = false;
+
+        btnStart.disabled = false;
+        btnStop.disabled = true;
+        btnRequest.disabled = false;
+        portSelect.disabled = false;
+        setStatus("Stopped");
+      }
+    }
+
+    async function stopStreaming() {
+      keepReading = false;
+      try { await reader?.cancel(); } catch {}
+    }
+
+    // --- UI wiring ---
+    btnRequest.addEventListener("click", async () => {
+      if (!("serial" in navigator)) {
+        alert("Web Serial not supported. Use Chrome/Edge.");
+        return;
+      }
+      try {
+        await navigator.serial.requestPort(); // prompts user
+        await refreshPorts(false);
+      } catch (e) {
+        setStatus("Port selection cancelled.");
+      }
+    });
+
+    portSelect.addEventListener("change", () => {
+      const idx = Number(portSelect.value);
+      activePort = ports[idx] || null;
+    });
+
+    btnStart.addEventListener("click", startStreaming);
+    btnStop.addEventListener("click", stopStreaming);
+
+    // Auto-refresh authorized ports on load
+    (async () => {
+      if (!("serial" in navigator)) {
+        setStatus("Web Serial not supported. Use Chrome/Edge.");
+        btnRequest.disabled = true;
+        return;
+      }
+      await refreshPorts();
+      navigator.serial.addEventListener("connect", () => refreshPorts());
+      navigator.serial.addEventListener("disconnect", () => refreshPorts());
+    })();
+  </script>
+</body>
+</html>

@@ -26,7 +26,10 @@
     button { cursor:pointer; }
     button:disabled { opacity:.5; cursor:not-allowed; }
     .muted { color:var(--muted); font-size:12px; }
-
+    body::-webkit-scrollbar {
+      width: 0px;
+      height: 0px;
+    }
     /* Layout: content row + bottom timeline */
     .app {
       height: calc(100vh - 56px);
@@ -149,11 +152,20 @@
     color: #e9eef7;
     font-size: 16px;
     cursor: pointer;
+    transition: transform 0.3s ease;
   }
   .iconBtn:disabled{ opacity:0.4; cursor:not-allowed; }
+
+  .iconBtn:hover:not(:disabled) {
+    background: rgba(255,255,255,0.08);
+    border-color: rgba(255,255,255,0.20);
+    transform: scale(1.05);
+  }
+
   .chip{
     display:flex;
     align-items:center;
+    justify-content:center;  
     gap:8px;
     padding:6px 10px;
     border-radius: 14px;
@@ -166,12 +178,18 @@
   .chip select{
     background: rgba(0,0,0,0.25);
     border: 1px solid rgba(255,255,255,0.12);
-    color: inherit;
+    color: var(--muted);
     border-radius: 10px;
     padding: 4px 8px;
     height: 24px;
+    transition:cubic-bezier(0.25, 0.46, 0.45, 0.94) 10s ease;
   }
 
+  .chip:hover:not(:disabled) select{
+    color: var(--text);
+    transform: scale(1.02);
+  }
+  
   .rowline{ display:flex; align-items:center; gap:10px; }
   .divider{ height:1px; background: rgba(255,255,255,0.10); }
 
@@ -188,7 +206,7 @@
     overflow: hidden;
     min-height: 0;
   }
-  #canvasWrap{ min-width:0; min-height:0; }
+  #canvasWrap{ min-width:100; min-height:100; }
   #right{ min-width: 240px; overflow:auto; }
   .splitterV{
     cursor: col-resize;
@@ -280,7 +298,7 @@
     top: 80px;
     left: 20px;
     width: 80px;
-    min-width: 160px;
+    min-width: 222px;
     min-height: 61px;
     max-width: 300px;
     max-height: 450px;
@@ -319,7 +337,7 @@
 
 /* Floating window container */
 #floatingInfo {
-  --float-bg: rgba(18, 18, 20, 0.92);
+  --float-bg: rgba(18, 18, 20, 0.60);
   --float-border: rgba(255, 255, 255, 0.12);
   --float-line: rgba(255, 255, 255, 0.10);
   --float-text: rgba(255, 255, 255, 0.92);
@@ -333,6 +351,7 @@
   top: 16px;
   width: 280px;
   max-width: min(320px, calc(100vw - 32px));
+  min-width: 222;
   color: var(--float-text);
   background: var(--float-bg);
   border: 1px solid var(--float-border);
@@ -406,6 +425,83 @@
   outline-offset: 2px;
 }
 
+/* hidden by default */
+#btnCloseFloat.iconBtn {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease, background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+/* show when hovering the floating island (or focusing within it) */
+#floatHeader:hover #btnCloseFloat.iconBtn,
+#floatHeader:focus-within #btnCloseFloat.iconBtn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.statsPanel{
+  margin-top: 10px;
+  padding: 10px 12px 12px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.03);
+  border-radius: 12px;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.25);
+}
+
+.statsHeader{
+  display:flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.statsTitle{
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: 0.2px;
+  color: rgba(255,255,255,0.92);
+}
+
+.statsHint{
+  font-size: 10.5px;
+  color: rgba(255,255,255,0.55);
+}
+
+.kvs{
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 10px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.kvs .kv.k{
+  color: rgba(255,255,255,0.65);
+  font-weight: 550;
+}
+
+.kvs .kv.v{
+  color: rgba(255,255,255,0.92);
+  font-weight: 650;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.kvs .kv.k{
+  position: relative;
+  padding-top: 2px;
+}
+.kvs .kv.k:not(:first-child)::before{
+  content:"";
+  position:absolute;
+  left:0; right:-10px; top:-4px;
+  height:1px;
+  background: rgba(255,255,255,0.06);
+}
+
+#floatingInfo::-webkit-scrollbar { width: 0; height: 0; }
+#floatingInfo { scrollbar-width: none; -ms-overflow-style: none; }
+
 /* Body */
 #floatBody {
   padding: 10px 12px 12px 12px;
@@ -431,7 +527,6 @@
 }
 
 .float-row .v {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-weight: 650;
   font-size: 12.25px;
   color: var(--float-text);
@@ -586,7 +681,13 @@
       <div class="float-row"><span class="k">X</span><span class="v" id="fx">—</span></div>
       <div class="float-row"><span class="k">Y</span><span class="v" id="fy">—</span></div>
       <div class="float-row"><span class="k">θ</span><span class="v" id="ft">—</span></div>
-      <div class="float-row"><span class="k">Time</span><span class="v" id="ftime">—</span></div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="float-section">
+        <div class="float-row"><span class="k">Time</span><span class="v" id="ftime">—</span></div>
+        <div class="float-row"><span class="k">Δ</span><span class="v" id="fdeltat">—</span></div>
     </div>
 
     <div class="divider"></div>
@@ -596,7 +697,6 @@
       <div class="float-row"><span class="k">L Vel</span><span class="v" id="flv">—</span></div>
       <div class="float-row"><span class="k">R Vel</span><span class="v" id="frv">—</span></div>
     </div>
-
     <div class="divider"></div>
 
     <div class="float-watch" id="fwatchblock">
@@ -610,7 +710,7 @@
     </div>
   </div>
 
-  <div id="floatResizer" aria-hidden="true"></div>
+  <div id="floatResizer" aria-hidden="false"></div>
 </div>
 
 
@@ -699,9 +799,15 @@
               </div>
             </div>
             <div class="divider" style="margin:14px 0;"></div>
-              <div style="font-weight:800; margin-bottom:6px">Stats</div>
-            <div class="kvs" id="stats"></div>
-          
+            <div class="statsPanel">
+              <div class="statsHeader">
+                <div class="statsTitle">Stats</div>
+                <div class="statsHint" id="statsMarker">Updates when a path is loaded</div>
+              </div>
+
+              <div class="kvs" id="stats"></div>
+            </div>
+
 </div> 
         </details>
       </div>
@@ -849,13 +955,15 @@
   const COLLAPSE_PX_TIMELINE = 140; // When the timeline collapses away
   const COLLAPSE_PX_SIDEBAR = 275; 
 
-  
+  const MAX_TIMELINE_H_PX = 350; // Height at which timeline stops growing
+  const MAX_SIDEBAR_W_PX = 400; // Width at which sidebar stops growing
+
   const HOVER_PIXEL_TOL = 14;
   const TRACK_HOVER_PAD_PX = 12; // How close to the track before snapping on
 
   const OFFSET_MAX = 100; // Max offset in either direction
 
-  const CANVAS_ZOOM_MAX = 9; // Max zoom in
+  const CANVAS_ZOOM_MAX = 12; // Max zoom in
   const CANVAS_ZOOM_MIN = 0.7; // Max zoom out
 
   const minW = 50, maxW = 400;
@@ -1017,21 +1125,41 @@
   }
 
   function heatColorFromNorm(n) {
-    // n=0 -> red-ish, n=1 -> green-ish
-    const t = clamp(n, 0, 1);
+    const t0 = clamp(n, 0, 1);
+
+    // If vel is ±127 scaled and n was made from it, then:
+    // vel<=5 corresponds to n <= 5/127.
+    const lowCut = 5 / 127;
+
+    // Force "dark red" for very low speeds
+    if (t0 <= lowCut) {
+      // dark red, slightly transparent
+      return `rgba(120, 10, 10, 1)`;
+    }
+
+    // 2) Remap (lowCut..1) -> (0..1) so everything above 5 has visible range
+    const t = (t0 - lowCut) / (1 - lowCut); // 0..1
     const u = 1 - t; // u=1 red, u=0 green
 
-    let r,g,b;
-    if (u <= 0.33) {
+    let r, g, b;
+
+    if (u <= 0.15) {
       const a = u / 0.33;
-      r = 40 + a*(255-40); g = 220; b = 80;
+      r = 40 + a * (255 - 40);
+      g = 220;
+      b = 80;
     } else if (u <= 0.66) {
-      const a = (u-0.33)/0.33;
-      r = 255; g = 220 - a*(140); b = 80 - a*(40);
+      const a = (u - 0.33) / 0.33;
+      r = 255;
+      g = 220 - a * 140;
+      b = 80 - a * 40;
     } else {
-      const a = (u-0.66)/0.34;
-      r = 255; g = 80 - a*(70); b = 40 - a*(30);
+      const a = (u - 0.66) / 0.34;
+      r = 255;
+      g = 80 - a * 70;
+      b = 40 - a * 30;
     }
+
     return `rgba(${Math.round(r)},${Math.round(g)},${Math.round(b)},0.88)`;
   }
 
@@ -1104,7 +1232,7 @@
     const topH = timelineTop ? timelineTop.getBoundingClientRect().height : 0;
     const hintH = timelineHint ? timelineHint.getBoundingClientRect().height : 0;
     const padding = 10 + 10; // rough internal padding
-    const avail = Math.max(44, barH - topH - hintH - padding);
+    const avail = Math.max(144, barH - topH - hintH - padding);
     timelineCanvas.style.height = `${avail}px`;
   }
 
@@ -1135,6 +1263,7 @@
     img.onload = () => { fieldImg = img; draw(); };
     img.onerror = () => { fieldImg = null; setStatus(`Could not load field image: ${filename}`); draw(); };
     img.src = filename;
+    setStatus(`Loading field image: ${filename}...`);
   }
 
   function loadRobotImage() {
@@ -1289,16 +1418,16 @@
     return watchMarkersByTime[lo];
   }
 
-function scrollIntoViewIfNeeded(container, el, pad=10) {
-  if (!container || !el) return;
-  const c = container.getBoundingClientRect();
-  const r = el.getBoundingClientRect();
-  if (r.top >= c.top + pad && r.bottom <= c.bottom - pad) return;
-  const topDelta = (r.top - (c.top + pad));
-  const botDelta = (r.bottom - (c.bottom - pad));
-  if (topDelta < 0) container.scrollTop += topDelta;
-  else if (botDelta > 0) container.scrollTop += botDelta;
-}
+  function scrollIntoViewIfNeeded(container, el, pad=10) {
+    if (!container || !el) return;
+    const c = container.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    if (r.top >= c.top + pad && r.bottom <= c.bottom - pad) return;
+    const topDelta = (r.top - (c.top + pad));
+    const botDelta = (r.bottom - (c.bottom - pad));
+    if (topDelta < 0) container.scrollTop += topDelta;
+    else if (botDelta > 0) container.scrollTop += botDelta;
+  }
 
   function highlightWatchInList(tMs, doScroll) {
     const items = watchList.querySelectorAll(".watchItem");
@@ -1421,7 +1550,7 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
       div.innerHTML = `
         <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap">
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <span class="pill level" style="background:${st.fill};color:${st.text}">${escapeHtml(st.name)}</span>
+            <span class="pill level" style="background:${st.fill};color:${st.fill}">${escapeHtml(st.name)}</span>
             <span style="font-weight:850;word-break:break-word">${escapeHtml(label)}</span>
           </div>
           <div class="muted">${t != null ? (t + "ms") : ""}</div>
@@ -1722,6 +1851,11 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
     return (clamp(i, 0, n) / n) * W;
   }
 
+  function indexToTime(i) {
+    i = clamp(i, 0, rawPoses.length - 1);
+    return rawPoses[i]?.t ?? 0;
+  }
+
   // Map a time to a *fractional pose index*, then to X.
   // This makes consecutive poses evenly spaced on the timeline.
   function timeToX(t) {
@@ -1995,6 +2129,7 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
     const waypointLabel = document.getElementById('fwatchlabel');
     const waypointValue = document.getElementById('fwatchvalue');
     const clickable = document.getElementById('fwatchclickable');
+    const deltaTime = document.getElementById('fdeltat');
 
     if (result) {
       const { watch, diffMs } = result;
@@ -2014,11 +2149,20 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
         updatePoseReadout();
         requestDrawAll();
       };
+
+      if (!data || !rawPoses.length) temp.textContent = "—";
+      const lockedTime = rawPoses[selectedIndex]?.t || 0;
+    
+      // hoverTimelineTime is the time currently under the cursor
+      const hoveredTime = hoverTimelineTime !== null ? hoverTimelineTime : lockedTime;
+      const delta = Math.abs(hoveredTime - lockedTime) / 1000;
+      deltaTime.textContent = `${delta.toFixed(2)}s`;
     } else {
       clickable.textContent = "—";
       waypointLabel.textContent = " —";
       waypointValue.textContent = " —";
       waypointTime.textContent = " —";
+      deltaTime.textContent = "—";
       clickable.style.cursor = "default";
       clickable.onclick = null;
     }
@@ -2036,27 +2180,39 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
     let idx = selectedIndex;
     let t = rawPoses[idx]?.t ?? null;
     let p = null;
+  if (playing) {
+    t = playTimeMs;
+    idx = findFloorIndexByTime(playTimeMs);
+    p = interpolatePoseAtTime(playTimeMs);
 
-    if (playing) {
-      t = playTimeMs;
-      idx = findFloorIndexByTime(playTimeMs);
-      p = interpolatePoseAtTime(playTimeMs);
-    } else if (hoverTimelineTime != null) {
-      t = hoverTimelineTime;
-      idx = findFloorIndexByTime(hoverTimelineTime);
-      p = interpolatePoseAtTime(hoverTimelineTime);
-    } else if (!playing && !trackLockActive && trackHover?.pose) {
+  } else if (hoverTimelineTime != null) {
+    t = hoverTimelineTime;
+    idx = findFloorIndexByTime(hoverTimelineTime);
+    p = interpolatePoseAtTime(hoverTimelineTime);
+
+  } else if (!playing && !trackLockActive && trackHover?.pose) {
+    // if hover pose has a time, use interpolation (smooth) instead of the raw cached pose (snappy)
+    const ht = trackHover.pose.t ?? null;
+
+    if (ht != null) {
+      t = ht;
+      idx = findFloorIndexByTime(ht);
+      p = interpolatePoseAtTime(ht);
+    } else {
+      // fallback to old behavior if hover time isn't available
       p = trackHover.pose;
-      // approximate index for readout
       idx = trackHover.idxNearest ?? selectedIndex;
       t = rawPoses[idx]?.t ?? null;
-    } else if (!playing && trackLockActive && trackLockPose) {
-      p = trackLockPose;
-      idx = trackLockIndex ?? selectedIndex;
-      t = rawPoses[idx]?.t ?? null;
-    } else {
-      p = poseToInches(rawPoses[idx]);
     }
+
+  } else if (!playing && trackLockActive && trackLockPose) {
+    p = trackLockPose;
+    idx = trackLockIndex ?? selectedIndex;
+    t = rawPoses[idx]?.t ?? null;
+
+  } else {
+    p = poseToInches(rawPoses[idx]);
+  }
 
     const total = rawPoses.length;
     timePill.textContent = (t == null) ? "Time: —" : `Time: ${(t / 1000).toFixed(2)}s`;
@@ -2252,13 +2408,18 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
 
     const dist = Math.sqrt(best.dist2);
     if (dist > HOVER_PIXEL_TOL + TRACK_HOVER_PAD_PX) return null;
-
+    
     const i0 = best.i, i1 = best.i + 1;
     const p0 = poses[i0], p1 = poses[i1];
     const a = best.alpha;
 
+    // NEW: compute interpolated time from rawPoses (not the inches-converted array)
+    const rt0 = rawPoses[i0]?.t ?? 0;
+    const rt1 = rawPoses[i1]?.t ?? rt0;
+    const tMs = rt0 + a * (rt1 - rt0);
+
     const pose = {
-      t: null,
+      t: tMs, // <-- was null
       x: p0.x + (p1.x - p0.x) * a,
       y: p0.y + (p1.y - p0.y) * a,
       theta: angLerpDeg(p0.theta ?? 0, p1.theta ?? 0, a),
@@ -2268,7 +2429,7 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
       speed_norm: (p0.speed_norm ?? 0) + ((p1.speed_norm ?? 0) - (p0.speed_norm ?? 0)) * a,
     };
 
-    // nearest index to this segment position
+    // nearest index can stay if you still want it for list highlighting
     const nearestIdx = (a < 0.5) ? i0 : i1;
     return { pose, nearestIdx };
   }
@@ -2317,6 +2478,7 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
     raf = null;
     playPose = null;
     lastWall = null;
+    setStatus(`Paused at time ${((rawPoses[selectedIndex]?.t ?? 0)/1000).toFixed(2)}s`);
   }
 
   function play() {
@@ -2326,6 +2488,8 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
     clearTrackHover(true);
     clearTrackLock();
     selectedWatch = null;
+    timelineHoverSaved = null;
+    setStatus(`Playing from time ${((rawPoses[selectedIndex]?.t ?? 0)/1000).toFixed(2)}s`);
 
     const tStart = rawPoses[selectedIndex]?.t;
     playTimeMs = (typeof tStart === "number") ? tStart : (rawPoses[0]?.t ?? 0);
@@ -2437,7 +2601,11 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
     // lock selection at time (clears track lock)
     clearTrackHover(true);
     clearTrackLock();
+    if (selectedWatch == null) {
+      setStatus(`Unlocked track lock.`);
+    }
     selectedWatch = null;
+
 
     const t = xToTime(x);
     selectedIndex = findFloorIndexByTime(t);
@@ -2452,7 +2620,6 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
   // -------- field interactions --------
   canvas.addEventListener('mousemove', (e) => {
     if (!data || playing || isPanning) return;
-    if (hoverTimelineTime != null) { hoverTimelineTime = null; timelineHoverSaved = null; }
 
     // watch hover has priority
     const hw = hitTestWatchAtClient(e.clientX, e.clientY);
@@ -2470,7 +2637,11 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
     if (trackLockActive) return;
 
     const hit = pickTrackPose(e.clientX, e.clientY);
+
     if (!hit) {
+      // no field hit => remove timeline hover preview too
+      hoverTimelineTime = null;
+
       if (trackHover) {
         clearTrackHover(true);
         highlightPoseInList();
@@ -2481,7 +2652,11 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
     }
 
     if (trackHoverSavedIndex == null) trackHoverSavedIndex = selectedIndex;
-    trackHover = { pose: hit.pose, idxNearest: hit.nearestIdx };
+    trackHover = { t: hit.pose.t, idxNearest: hit.nearestIdx };
+
+    // Drive the timeline grey line from the hovered field pose
+    hoverTimelineTime = hit.pose.t ?? null;
+
     updatePoseReadout();
     requestDrawAll();
   });
@@ -2524,6 +2699,16 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
       clearTrackHover(false);
       trackHoverSavedIndex = null;
 
+      // Show locked pos on timeline
+      if (timelineHoverSaved == null) {
+        timelineHoverSaved = {
+          index: selectedIndex,
+          lockActive: trackLockActive,
+          lockPose: hit.pose,
+          lockIndex: trackLockIndex
+        };
+      }
+
       setStatus(`Locked to track near pose #${selectedIndex+1}. (Click off-track to unlock)`);
       highlightPoseInList();
       updatePoseReadout();
@@ -2553,7 +2738,11 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
       const n = parseFloat(v);
       return isFinite(n) ? n : 360;
     };
-    const setSidebarW = (px) => root.style.setProperty('--sidebarW', `${px}px`);
+    const setSidebarW = (px) => {
+      px = Math.min(px, MAX_SIDEBAR_W_PX);
+      root.style.setProperty('--sidebarW', `${px}px`);
+
+    }
 
     vSplit.addEventListener('mousedown', (e) => {
       draggingV = true;
@@ -2573,7 +2762,10 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
       const n = parseFloat(v);
       return isFinite(n) ? n : 260;
     };
-    const setTimelineH = (px) => root.style.setProperty('--timelineH', `${px}px`);
+    const setTimelineH = (px) => {
+      px = Math.min(px, MAX_TIMELINE_H_PX);
+      root.style.setProperty('--timelineH', `${px}px`);
+    }
 
     hSplit.addEventListener('mousedown', (e) => {
       draggingH = true;
@@ -2645,11 +2837,14 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
         setSidebarW(0);
         rightEl.classList.add('isCollapsed');
       }
-      resizeCanvas(); resizeTimeline(); 
+        resetFieldPosition();
+        resizeCanvas();
+        layoutTimelineCanvas();
     });
 
     hSplit.addEventListener('dblclick', () => {
       const cur = getTimelineH();
+      let next = getTimelineH();
       if (cur <= COLLAPSE_PX_TIMELINE) {
         setTimelineH(Math.max(160, lastTimelineH));
         timelineBar.classList.remove('isCollapsed');
@@ -2658,16 +2853,19 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
         setTimelineH(0);
         timelineBar.classList.add('isCollapsed');
       }
-        next = Math.min(300, next);
+        next = Math.min(1, next);
         setTimelineH(next);
-
-        resizeTimeline(); resizeCanvas();
+        resetFieldPosition();
+        drawField();
+        resizeTimeline();
+        resizeCanvas();
+        layoutTimelineCanvas();
     });
   })();
 
   // -------- data load --------
   function setData(obj) {
-    data = obj;
+    data = obj;'lu'
     if (!obj || !Array.isArray(obj.poses)) {
       setStatus("Invalid viewer JSON: missing poses[]");
       return;
@@ -2727,6 +2925,7 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
     renderPoseList();
 
     // stats
+    const statsHint = document.getElementById('statsMarker');
     const th = obj.thinning || {};
     const t0 = rawPoses[0]?.t;
     const tN = rawPoses[rawPoses.length-1]?.t;
@@ -2734,11 +2933,10 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
       ["Poses in file", rawPoses.length],
       ["Watches in file", watches.length],
       ["Watches mapped on path", watchMarkers.length],
-      ["file raw est", th.raw ?? "—"],
       ["Points kept from file", th.kept ?? "—"],
       ["Points removed from file", th.removed ?? "—"],
       ["Thinning ms", th.viewer_thin_ms ?? "—"],
-      ["Time range", (typeof t0==="number" && typeof tN==="number") ? `${t0}…${tN} ms` : "—"],
+      ["Time range", (typeof t0==="number" && typeof tN==="number") ? `${(t0 / 1000).toFixed(1)} — ${(tN / 1000).toFixed(1)}s` : "—"],
     ];
     statsEl.innerHTML = "";
     for (const [k, v] of rows) {
@@ -2746,7 +2944,7 @@ function scrollIntoViewIfNeeded(container, el, pad=10) {
       const b = document.createElement("div"); b.textContent = String(v);
       statsEl.appendChild(a); statsEl.appendChild(b);
     }
-
+    statsHint.textContent = ``;
     bounds = { ...FIELD_BOUNDS_IN };
     computeTransform();
 
