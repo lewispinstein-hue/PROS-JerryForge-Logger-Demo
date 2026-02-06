@@ -2898,9 +2898,169 @@
 
   
   // -------- Left sidebar controls (Stop / Connect / Refresh) --------
+  // Live streaming model:
+  // - Connect toggles the WebSocket connection (/ws)
+  // - Start/Stop is the existing "Stop" button (it becomes a toggle)
+  //   * When disconnected: disabled, tooltip "Starts streaming. Connect to start."
+  //   * When connected & idle: shows "Start"
+  //   * When streaming: shows "Stop"
+  //   * Cmd/Ctrl + click Stop => force kill (/api/kill), if server supports it
+  //
+  // Output always appends into #liveWin.
+
+  const liveWinEl = document.getElementById('liveWin');
+  const btnLeftStopEl = document.getElementById('btnLeftStop');
+  const btnLeftConnectEl = document.getElementById('btnLeftConnect');
+  const btnLeftRefreshEl = document.getElementById('btnLeftRefresh');
+  const leftRefreshIntervalEl = document.getElementById('leftRefreshInterval');
+
+  let leftWs = null;
   let leftConnected = false;
+  let leftStreaming = false;
+
   let leftRefreshTimer = null;
-  let leftRefreshMs = parseInt(leftRefreshInterval?.value || "500", 10) || 500;
+  let leftRefreshMs = parseInt(leftRefreshIntervalEl?.value || "500", 10) || 500;
+
+  function liveAppendLine(s) {
+    if (!liveWinEl) return;
+    const trimmed = (s.endsWith("\n") || s.endsWith("\r\n")) ? s : (s + "\n");
+    // keep it responsive (basic cap)
+    const MAX_CHARS = 200_000;
+    if (liveWinEl.value.length > MAX_CHARS) {
+      liveWinEl.value = liveWinEl.value.slice(liveWinEl.value.length - MAX_CHARS);
+    }
+    const nearBottom =
+      (liveWinEl.scrollTop + liveWinEl.clientHeight >= liveWinEl.scrollHeight - 12);
+
+    // append + keep last ~2000 lines for perf
+    liveWinEl.value += trimmed;
+    const lines = liveWinEl.value.split("\n");
+    const MAX = 2000;
+    if (lines.length > MAX) liveWinEl.value = lines.slice(lines.length - MAX).join("\n");
+
+    // only autoscroll if user was already at bottom
+    if (nearBottom) liveWinEl.scrollTop = liveWinEl.scrollHeight;
+  }
+
+  function stripToTag(line) {
+    // Accept library-prefixed lines like: "[28.08] [INFO]: [DATA],..."
+    const iData = line.indexOf('[DATA]');
+    const iWatch = line.indexOf('[WATCH]');
+    let i = -1;
+    if (iData >= 0 && iWatch >= 0) i = Math.min(iData, iWatch);
+    else i = (iData >= 0) ? iData : iWatch;
+
+    if (i < 0) return "";
+    return line.slice(i).trim();
+  }
+
+  function setLeftUi() {
+    if (btnLeftConnect) {
+      btnLeftConnect.classList.toggle('isOn', leftConnected);
+      btnLeftConnect.textContent = leftConnected ? "Disconnect" : "Connect";
+    }
+
+    if (btnLeftStop) {
+      btnLeftStop.disabled = !leftConnected;
+      if (!leftConnected) {
+        btnLeftStop.title = "Starts streaming. Connect to start.";
+        btnLeftStop.textContent = "Start";
+        btnLeftStop.classList.remove('isOn');
+      } else {
+        btnLeftStop.title = leftStreaming
+          ? "Stop streaming. Cmd/Ctrl+Click to force kill."
+          : "Starts streaming.";
+        btnLeftStop.textContent = leftStreaming ? "Stop" : "Start";
+        btnLeftStop.classList.toggle('isOn', leftStreaming);
+      }
+    }
+  }
+
+  function leftSetUI(reason) {
+    setLeftUi();
+    // Connect button state
+    if (btnLeftConnectEl) {
+      btnLeftConnectEl.classList.toggle('isOn', !!leftConnected);
+      btnLeftConnectEl.title = leftConnected ? "Disconnect" : "Connect";
+    }
+
+    // Start/Stop toggle state (this is btnLeftStop)
+    if (btnLeftStopEl) {
+      btnLeftStopEl.textContent = leftStreaming ? "Stop" : "Start";
+      btnLeftStopEl.disabled = !leftConnected;
+      btnLeftStopEl.title = leftConnected
+        ? (leftStreaming ? "Stop streaming" : "Starts streaming.")
+        : "Starts streaming. Connect to start.";
+    }
+
+    // Refresh controls only meaningful while connected
+    if (btnLeftRefreshEl) btnLeftRefreshEl.disabled = !leftConnected;
+    if (leftRefreshIntervalEl) leftRefreshIntervalEl.disabled = !leftConnected;
+
+    // Optional: write small state message to live window when transitions happen
+    if (reason) {
+      liveAppendLine(`[UI] ${reason}`);
+    }
+  }
+
+  function wsUrl(path) {
+    const isHttps = window.location.protocol === "https:";
+    const proto = isHttps ? "wss:" : "ws:";
+    return `${proto}//${window.location.host}${path}`;
+  }
+
+  async function apiPost(path) {
+    const res = await fetch(path, { method: "POST" });
+    // Best-effort JSON; don't crash UI if server returns non-JSON or 404
+    let json = null;
+    try { json = await res.json(); } catch (e) {}
+    return { ok: res.ok, status: res.status, json };
+  }
+
+  function connectLeft() {
+    stopStreaming(false, false);
+    if (leftWs) return;
+    const url = wsUrl("/ws");
+    leftWs = new WebSocket(url);
+
+    leftWs.addEventListener("open", () => {
+      leftConnected = true;
+      leftSetUI("Connected");
+
+      startLeftRefresh();
+    });
+
+    leftWs.addEventListener("message", (ev) => {
+      const raw = (typeof ev.data === "string") ? ev.data : "";
+      const trimmed = stripToTag(raw);
+      if (trimmed) liveAppendLine(trimmed);
+    });
+
+    leftWs.addEventListener("close", () => {
+      leftWs = null;
+      leftConnected = false;
+      leftStreaming = false;
+      stopLeftRefresh();
+    });
+
+    leftWs.addEventListener("error", () => {
+      // Errors often precede close; keep it gentle.
+      liveAppendLine("[WS] error");
+    });
+
+    leftSetUI("Connecting…");
+  }
+
+  function disconnectLeft() {
+    if (leftWs) {
+      try { leftWs.close(); } catch (e) {}
+    }
+    leftWs = null;
+    leftConnected = false;
+    leftStreaming = false;
+    stopLeftRefresh();
+    leftSetUI("Disconnected");
+  }
 
   function stopLeftRefresh() {
     if (leftRefreshTimer) {
@@ -2918,37 +3078,87 @@
     }, leftRefreshMs);
   }
 
-  function doLeftRefresh() {
-    // Intentionally no UI logging here.
-    // Hook your real data source into this function later.
+  async function doLeftRefresh() {
+    // Optional: poll server status if you later add /api/status.
+    // For now, do nothing unless server provides it.
+    try {
+      const res = await fetch("/api/status");
+      if (!res.ok) return;
+      const j = await res.json();
+      // Example: { connected: true, running: true, ... }
+      // Keep as a debug line for now:
+      // liveAppendLine(`[status] ${JSON.stringify(j)}`);
+      // You can also reconcile UI with j.running here if you want.
+    } catch (e) {
+      // ignore
+    }
   }
 
-  btnLeftStop?.addEventListener('click', () => {
-    leftConnected = false;
-    stopLeftRefresh();
-    btnLeftConnect?.classList.remove('isOn');
-  });
-
-  btnLeftConnect?.addEventListener('click', () => {
-    leftConnected = !leftConnected;
-    if (leftConnected) {
-      btnLeftConnect?.classList.add('isOn');
-      doLeftRefresh();
-      startLeftRefresh();
-    } else {
-      btnLeftConnect?.classList.remove('isOn');
-      stopLeftRefresh();
+  async function startStreaming() {
+    const r = await apiPost("/api/start");
+    if (!r.ok) {
+      liveAppendLine(`[api] start failed (${r.status})`);
+      return false;
     }
+    leftStreaming = true;
+    leftSetUI("Streaming started");
+    return true;
+  }
+
+  async function stopStreaming(forceKill = false, doMsg = true) {
+    const path = forceKill ? "/api/kill" : "/api/stop";
+    const r = await apiPost(path);
+    if (!r.ok) {
+      liveAppendLine(`[api] stop/kill failed (${r.status})`);
+      // Even if kill endpoint doesn't exist, still fall back to /api/stop
+      if (forceKill && r.status === 404) {
+        const r2 = await apiPost("/api/stop");
+        if (!r2.ok) return false;
+      } else {
+        return false;
+      }
+    }
+    leftStreaming = false;
+    if (doMsg)
+      leftSetUI(forceKill ? "Force-killed" : "Streaming stopped");
+    return true;
+  }
+
+  // Connect toggle
+  btnLeftConnectEl?.addEventListener('click', () => {
+    if (leftConnected) disconnectLeft();
+    else connectLeft();
   });
 
-  btnLeftRefresh?.addEventListener('click', () => {
+  // Start/Stop toggle (+ cmd/ctrl click => force kill)
+  btnLeftStopEl?.addEventListener('click', async (e) => {
+    if (!leftConnected) return;
+
+    const forceKill = !!(e?.metaKey || e?.ctrlKey);
+    if (forceKill) {
+      await stopStreaming(true);
+      return;
+    }
+
+    if (!leftStreaming) await startStreaming();
+    else await stopStreaming(false);
+    btnLeftConnectEl.title = leftConnected ? "Disconnect" : "Connect";
+    setLeftUi();
+  });
+
+  // Manual refresh button
+  btnLeftRefreshEl?.addEventListener('click', () => {
     doLeftRefresh();
   });
 
-  leftRefreshInterval?.addEventListener('change', () => {
-    leftRefreshMs = parseInt(leftRefreshInterval.value || "0", 10) || 0;
+  leftRefreshIntervalEl?.addEventListener('change', () => {
+    leftRefreshMs = parseInt(leftRefreshIntervalEl.value || "0", 10) || 0;
     startLeftRefresh();
   });
+
+  // Initialize UI on load
+  leftSetUI("");
+
 
 // -------- splitters with collapse --------
   (function setupSplitters() {

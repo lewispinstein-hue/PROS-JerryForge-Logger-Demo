@@ -142,6 +142,8 @@ async def start():
         # Exec PROS terminal
         os.execvp("pros", ["pros", "terminal"])
 
+        # os.execvp("python3", ["python3", "-u", "simulate-log.py"]) # Test log
+
     # Parent
     os.close(slave_fd)
     proc_pid = pid
@@ -192,7 +194,7 @@ async def status():
         "pty_open": (pty_master_fd is not None),
     }
 
-@app.post("/api/fkill")
+@app.post("/api/kill")
 async def api_kill():
     global proc_pid
     if proc_pid is None:
@@ -206,13 +208,20 @@ async def api_kill():
     proc_pid = None
     return {"ok": True, "status": "killed"}
 
+@app.websocket("/ws")
+async def ws(websocket: WebSocket):
+    print("WS: connection attempt")
+    await websocket.accept()
+    print("WS: accepted")
+    ...
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
     try:
-        uvicorn.run(app, host=args.host, port=args.port)
+        uvicorn.run(app, host=args.host, port=args.port, ws="websockets")
     except Exception as e:
         print(f"Exception running uvicorn: {e}")
 
