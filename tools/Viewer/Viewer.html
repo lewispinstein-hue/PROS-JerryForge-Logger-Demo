@@ -6,8 +6,8 @@
   <title>JerryForge Viewer (Offline)</title>
   <style>
     :root { 
-      --rightSidebarW: 360px;
-            --leftSidebarW: 360px;
+      --rightSidebarW: 370px;
+            --leftSidebarW: 390px;
 --timelineH: 260px;
       --toolbarH: 54px;
       --bg:#0b0f14; 
@@ -131,6 +131,12 @@
     #timelineHint { color: var(--muted); font-size: 12px; }
 
   header.toolbar{
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    align-items: center;
+    flex-wrap: nowrap;
+    width: 250px; 
     display:flex;
     align-items:center;
     gap:10px;
@@ -736,7 +742,7 @@
 </style>
 </head>
 <body>
-<header class="toolbar">
+<header class="">
   <input id="file" type="file" accept=".json" style="display:none" />
   <button id="btnFile" class="iconBtn" title="Open JSON">📄</button>
   <button id="btnPlay" class="iconBtn" title="Play/Pause" disabled>▶</button>
@@ -759,7 +765,7 @@
       <option value="">No field image</option>
     </select>
   </div>
-
+  <button class="iconBtn pillAction" id="btnClearField" style="font-size: 12px" title="Clear field">❌</button>
   <button id="btnHelp" class="iconBtn" title="Help">?</button>
   <span class="grow muted" id="status">Drop a viewer JSON file.</span>
 </header>
@@ -859,6 +865,8 @@
             <button class="leftRefreshBtn" id="btnLeftRefresh" type="button">Refresh</button>
             <select id="leftRefreshInterval" aria-label="Refresh interval">
               <option value="0">off</option>
+              <option value="100">100ms</option>
+              <option value="121">121ms (SFX HZ)</option>
               <option value="250">250ms</option>
               <option value="500" selected>500ms</option>
               <option value="1000">1s</option>
@@ -944,7 +952,7 @@
                 <input id="offY" type="number" step="0.1" value="0" />
               </div>
               <div>
-                <label>Theta Offset (deg)</label>
+                <label>Theta Offset</label>
                 <input id="offTheta" type="number" step="1" value="0" />
               </div>
             </div>
@@ -1028,7 +1036,7 @@
         <span class="kv"><span class="k">X: </span><span class="v" id="poseX">—</span></span>
         <span class="kv"><span class="k">Y: </span><span class="v" id="poseY">—</span></span>
         <span class="kv"><span class="k">θ: </span><span class="v" id="poseTh">—</span></span>
-        <span class="kv"><span class="k">N: </span><span class="v" id="poseSn">—</span></span>
+        <span class="kv"><span class="k">Speed: </span><span class="v" id="poseSn">—</span></span>
       </span>
     </div>
     <canvas id="timelineCanvas"></canvas>
@@ -1041,6 +1049,8 @@
 <script>
 (() => {
   const root = document.documentElement;
+  // Live streaming state shared across handlers (avoids TDZ issues)
+  window.__live = window.__live || { connected: false, streaming: false };
 
   const canvas = document.getElementById('c');
   // Track last mouse position (for small popups)
@@ -1124,9 +1134,9 @@
   const COLLAPSE_PX_TIMELINE = 140; // When the timeline collapses away
   const COLLAPSE_PX_SIDEBAR = 275; 
 
-  const COLLAPSE_PX_LEFTSIDEBAR = 220; // When the left sidebar collapses away
+  const COLLAPSE_PX_LEFTSIDEBAR = 370; // When the left sidebar collapses away
   const DBLCLICK_COLLAPSE_LEFTSIDEBAR = true;
-  const MAX_PX_LIVEWIN = 420; // Max width for left live window panel
+  const MAX_PX_LIVEWIN = 650; // Max width for left live window panel
 
   const MAX_TIMELINE_H_PX = 350; // Height at which timeline stops growing
   const MAX_SIDEBAR_W_PX = 400; // Width at which sidebar stops growing
@@ -2331,7 +2341,6 @@
       const delta = Math.abs(hoveredTime - lockedTime) / 1000;
       deltaTime.textContent = `${delta.toFixed(2)}s`;
     } else {
-      clickable.textContent = "—";
       waypointLabel.textContent = " —";
       waypointValue.textContent = " —";
       waypointTime.textContent = " —";
@@ -2654,6 +2663,7 @@
 
   function play() {
     if (!rawPoses.length) return;
+    if (window.__live && window.__live.streaming) { setStatus('Playback disabled while livestreaming.'); return; }
 
     // starting playback clears track lock to avoid confusing states
     clearTrackHover(true);
@@ -2761,6 +2771,7 @@
 
   timelineCanvas.addEventListener("mousedown", (e) => {
     if (!data || playing || !rawPoses.length) return;
+    if (window.__live && window.__live.streaming) return;
     const { x, y } = timelineMousePos(e);
 
     const hit = timelinePickWatchDot(x, y);
@@ -2848,6 +2859,7 @@
 
   canvas.addEventListener('click', (e) => {
     if (!data || playing) return;
+    if (window.__live && window.__live.streaming) return;
     if (suppressNextClick) { suppressNextClick = false; return; }
 
     const hw = hitTestWatchAtClient(e.clientX, e.clientY);
@@ -2918,8 +2930,74 @@
   let leftConnected = false;
   let leftStreaming = false;
 
+  // In livestream mode, optionally keep the robot snapped to the newest pose when not hovering the timeline.
+  // Toggled with Space (while connected).
+  let liveAutoFollowHead = true;
+
   let leftRefreshTimer = null;
   let leftRefreshMs = parseInt(leftRefreshIntervalEl?.value || "500", 10) || 500;
+
+  // --- Live incremental processing ---
+  // Buffer incoming WS lines; doLeftRefresh consumes them and updates poses/watches.
+  let livePendingLines = [];
+  let livePendingConsumed = 0; // index into livePendingLines
+
+  // Track how much we've already integrated into rawPoses/watches
+  let liveLastPoseT = null; // last pose timestamp integrated
+  let liveLastPoseCount = 0;
+  let liveLastWatchCount = 0;
+
+  function parseLiveLineIntoState(line) {
+    const s = stripToTag(line);
+    if (!s) return { posesAdded: 0, watchesAdded: 0 };
+
+    // DATA: [DATA],millis,x,y,theta,l_vel,r_vel
+    if (s.startsWith("[DATA],")) {
+      const parts = s.split(",");
+      if (parts.length < 7) return { posesAdded: 0, watchesAdded: 0 };
+      const t = toNumMaybe(parts[1]);
+      const x = toNumMaybe(parts[2]);
+      const y = toNumMaybe(parts[3]);
+      const theta = toNumMaybe(parts[4]);
+      const l_vel = toNumMaybe(parts[5]);
+      const r_vel = toNumMaybe(parts[6]);
+      if (t == null || x == null || y == null) return { posesAdded: 0, watchesAdded: 0 };
+
+      // De-dup / monotonic guard (common if stream repeats)
+      if (liveLastPoseT != null && t <= liveLastPoseT) return { posesAdded: 0, watchesAdded: 0 };
+
+      // Derive a "speed" (raw) from wheel velocities if present
+      const lv = (typeof l_vel === "number" && isFinite(l_vel)) ? l_vel : 0;
+      const rv = (typeof r_vel === "number" && isFinite(r_vel)) ? r_vel : 0;
+      const speed_raw = (Math.abs(lv) + Math.abs(rv)) / 2;
+
+      rawPoses.push({
+        t, x, y,
+        theta: (theta == null) ? 0 : theta,
+        l_vel: (l_vel == null) ? null : l_vel,
+        r_vel: (r_vel == null) ? null : r_vel,
+        speed_raw,
+        speed_norm: 0,
+      });
+      liveLastPoseT = t;
+      return { posesAdded: 1, watchesAdded: 0 };
+    }
+
+    // WATCH: [WATCH],millis,level,label,value (value may contain commas)
+    if (s.startsWith("[WATCH],")) {
+      const parts = s.split(",");
+      if (parts.length < 5) return { posesAdded: 0, watchesAdded: 0 };
+      const t = toNumMaybe(parts[1]);
+      if (t == null) return { posesAdded: 0, watchesAdded: 0 };
+      const level = parts[2] ?? "INFO";
+      const label = parts[3] ?? "";
+      const value = parts.slice(4).join(",");
+      watches.push({ t, level, label, value });
+      return { posesAdded: 0, watchesAdded: 1 };
+    }
+
+    return { posesAdded: 0, watchesAdded: 0 };
+  }
 
   function liveAppendLine(s) {
     if (!liveWinEl) return;
@@ -2978,6 +3056,7 @@
 
   function leftSetUI(reason) {
     setLeftUi();
+    if (window.__live) { window.__live.connected = !!leftConnected; window.__live.streaming = !!leftStreaming; }
     // Connect button state
     if (btnLeftConnectEl) {
       btnLeftConnectEl.classList.toggle('isOn', !!leftConnected);
@@ -3033,14 +3112,26 @@
     leftWs.addEventListener("message", (ev) => {
       const raw = (typeof ev.data === "string") ? ev.data : "";
       const trimmed = stripToTag(raw);
-      if (trimmed) liveAppendLine(trimmed);
+      if (trimmed) {
+        liveAppendLine(trimmed);
+        livePendingLines.push(trimmed);
+        // cap pending buffer to avoid unbounded growth
+        const MAX_PENDING = 20000;
+        if (livePendingLines.length > MAX_PENDING) {
+          const drop = livePendingLines.length - MAX_PENDING;
+          livePendingLines.splice(0, drop);
+          livePendingConsumed = Math.max(0, livePendingConsumed - drop);
+        }
+      }
     });
 
     leftWs.addEventListener("close", () => {
       leftWs = null;
       leftConnected = false;
       leftStreaming = false;
+      if (window.__live) { window.__live.connected = false; window.__live.streaming = false; }
       stopLeftRefresh();
+      leftSetUI("Disconnected");
     });
 
     leftWs.addEventListener("error", () => {
@@ -3078,21 +3169,72 @@
     }, leftRefreshMs);
   }
 
+  let lastPoseIndex = 0;
   async function doLeftRefresh() {
-    // Optional: poll server status if you later add /api/status.
-    // For now, do nothing unless server provides it.
-    try {
-      const res = await fetch("/api/status");
-      if (!res.ok) return;
-      const j = await res.json();
-      // Example: { connected: true, running: true, ... }
-      // Keep as a debug line for now:
-      // liveAppendLine(`[status] ${JSON.stringify(j)}`);
-      // You can also reconcile UI with j.running here if you want.
-    } catch (e) {
-      // ignore
+    // During live mode, refresh means: integrate any pending WS lines into
+    // rawPoses/watches, then update derived state and redraw.
+    if (!leftConnected) return;
+    if (!leftStreaming) return; // "Stop" pauses drawing; we still buffer lines
+
+    if (!data) {
+      data = { poses: [], watches: [], meta: {} };
     }
+
+    const startIdx = livePendingConsumed;
+    const endIdx = livePendingLines.length;
+    if (startIdx >= endIdx) {
+      // Nothing new; still ensure we snap to latest if appropriate
+      if (liveAutoFollowHead && rawPoses.length && hoverTimelineTime == null && !playing && !trackLockActive && !(trackHover && (trackHover.pose || trackHover.t))) {
+        selectedIndex = rawPoses.length - 1;
+        lastPoseIndex = selectedIndex;
+        updatePoseReadout();
+        requestDrawAll();
+      } else if (!liveAutoFollowHead && rawPoses.length && hoverTimelineTime == null && !playing && !trackLockActive && !(trackHover && (trackHover.pose || trackHover.t))) {
+        selectedIndex = lastPoseIndex;
+      }
+      return;
+    }
+
+    let posesAdded = 0;
+    let watchesAdded = 0;
+
+    for (let i = startIdx; i < endIdx; i++) {
+      const r = parseLiveLineIntoState(livePendingLines[i]);
+      posesAdded += r.posesAdded;
+      watchesAdded += r.watchesAdded;
+    }
+    livePendingConsumed = endIdx;
+
+    if (posesAdded === 0 && watchesAdded === 0) return;
+
+    // Keep watches sorted (poses are appended monotonically by t)
+    if (watchesAdded > 0) {
+      watches.sort((a,b) => (a.t ?? 0) - (b.t ?? 0));
+    }
+
+    // Recompute derived fields. This is cheap at your scale (<~4000 poses).
+    computeSpeedNorm();
+
+    if (watchesAdded > 0) {
+      recomputeWatchMarkers();
+      rebuildWatchMarkersByTime();
+      renderWatchList();
+    }
+
+    if (posesAdded > 0) {
+      renderPoseList();
+      // If not hovering timeline/track, keep the robot on the most recent pose.
+      if (liveAutoFollowHead && hoverTimelineTime == null && !playing && !trackLockActive && !(trackHover && (trackHover.pose || trackHover.t))) {
+        selectedIndex = rawPoses.length - 1;
+      } else if (!liveAutoFollowHead && rawPoses.length && hoverTimelineTime == null && !playing && !trackLockActive && !(trackHover && (trackHover.pose || trackHover.t))) {
+        selectedIndex = lastPoseIndex;
+      }
+    }
+
+    updatePoseReadout();
+    requestDrawAll();
   }
+
 
   async function startStreaming() {
     const r = await apiPost("/api/start");
@@ -3571,13 +3713,81 @@
 
   if (watchSort) watchSort.addEventListener('change', () => { renderWatchList(); requestDrawAll(); });
 
+  const btnLeftClear = document.getElementById('btnClearField');
+
+  function clearAllPosesAndWatches() {
+    // Stop playback/hover/locks so UI doesn’t reference stale indices
+    try { playing = false; } catch {}
+    try { hoverTimelineTime = null; } catch {}
+    try { trackHover = null; } catch {}
+    try { trackLockActive = false; } catch {}
+    try { trackLockPose = null; } catch {}
+    try { trackLockIndex = null; } catch {}
+
+    // Clear core data
+    rawPoses = [];
+    watches = [];
+
+    // Clear any derived / UI lists if you have them
+    try { watchMarkers = []; } catch {}
+    try { watchByLabel = {}; } catch {}
+    try { lastPoseIndex = 0; } catch {}
+    try { livePendingLines = []; livePendingConsumed = 0; } catch {}
+
+    // Keep `data` consistent if you use it elsewhere
+    if (typeof data === "object" && data) {
+      data.poses = [];
+      data.watches = [];
+    }
+
+    // Reset selection + redraw
+    selectedIndex = 0;
+
+    // If you have helper functions, call them; guard so no crashes
+    try { renderPoseList?.(); } catch {}
+    try { renderWatchList?.(); } catch {}
+    try { updatePoseReadout?.(); } catch {}
+    try { updateFloatingInfo?.(null, 0); } catch {}
+    try { requestDrawAll?.(); } catch {}
+
+    setStatus("Cleared field (poses + watches).");
+  }
+
+  btnLeftClear?.addEventListener('click', () => {
+    clearAllPosesAndWatches();
+  });
+
   document.addEventListener('keydown', (e) => {
     if (!data) return;
-    if (e.code === "Space") {
+    // Don't steal keys while typing in inputs/textareas (except the read-only live window).
+    const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : "";
+    const isTyping = (tag === "input" || tag === "textarea" || (e.target && e.target.isContentEditable));
+    if (isTyping && e.target !== liveWinEl) return;
+
+    // Space toggles "auto-follow head" while connected in livestream mode.
+    if (e.code === "Space" && leftConnected) {
+      e.preventDefault();
+      if (liveAutoFollowHead) {
+        // about to turn it OFF => freeze at current index
+        lastPoseIndex = selectedIndex;
+        liveAutoFollowHead = false;
+      } else {
+        liveAutoFollowHead = true;
+      }
+      if (window.__live) window.__live.autoFollowHead = !!liveAutoFollowHead;
+      setStatus(`Live View: Auto-follow head: ${liveAutoFollowHead ? "ON" : "OFF"} (Space)`);
+      return;
+    } else if (e.code === "Space") {
       e.preventDefault();
       playing ? (pause(), updatePoseReadout(), requestDrawAll()) : play();
     }
+
     if (e.code === "ArrowLeft") {
+      console.clear();
+            console.log(`Last pose: ${lastPoseIndex}`);
+      console.log(`Selected index: ${selectedIndex}`);
+      console.log(`liveAutoFollowHead: ${liveAutoFollowHead}`);
+      return;
       e.preventDefault();
       pause();
       clearTrackHover(true);
