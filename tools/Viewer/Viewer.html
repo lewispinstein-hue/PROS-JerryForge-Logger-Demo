@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>JerryForge Viewer (Offline)</title>
+  <title>PROS Path Viewer (Offline)</title>
   <style>
     :root { 
       --rightSidebarW: 370px;
-            --leftSidebarW: 390px;
---timelineH: 260px;
+      --leftSidebarW: 390px;
+      --timelineH: 260px;
       --toolbarH: 54px;
       --bg:#0b0f14; 
       --panel:#101720; 
@@ -1226,7 +1226,7 @@
     return normalizeDeg(a + diff * t);
   }
   function fmtNum(v, d=2) { if (typeof v !== "number" || !isFinite(v)) return "—"; return v.toFixed(d); }
-  function setStatus(msg) { statusEl.textContent = msg; }
+  function setStatus(msg) { statusEl.textContent = msg; console.log(`Status: ${msg}`); }
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;" }[c]));
@@ -1348,6 +1348,18 @@
 
   // -------- pose conversion --------
   function poseToInches(p) {
+    if (!p) {
+      return {
+        t: null,
+        x: offsetsIn.x,
+        y: offsetsIn.y,
+        theta: normalizeDeg(offsetsIn.theta),
+        l_vel: null,
+        r_vel: null,
+        speed_raw: null,
+        speed_norm: 0,
+      };
+    }
     return {
       t: (typeof p.t === "number") ? p.t : null,
       x: (p.x ?? 0) * unitsToInFactor + offsetsIn.x,
@@ -1446,7 +1458,6 @@
     img.onload = () => { fieldImg = img; draw(); };
     img.onerror = () => { fieldImg = null; setStatus(`Could not load field image: ${filename}`); draw(); };
     img.src = filename;
-    setStatus(`Loading field image: ${filename}...`);
   }
 
   function loadRobotImage() {
@@ -2358,21 +2369,22 @@
       posePill.textContent = "X: —  Y: — θ: —  Speed: —";
       return;
     }
-
+    if (selectedIndex < 0) selectedIndex = 0;
+    if (selectedIndex >= rawPoses.length) selectedIndex = Math.max(0, rawPoses.length - 1);
     let idx = selectedIndex;
     let t = rawPoses[idx]?.t ?? null;
     let p = null;
-  if (playing) {
-    t = playTimeMs;
-    idx = findFloorIndexByTime(playTimeMs);
-    p = interpolatePoseAtTime(playTimeMs);
+    if (playing) {
+      t = playTimeMs;
+      idx = findFloorIndexByTime(playTimeMs);
+      p = interpolatePoseAtTime(playTimeMs);
 
-  } else if (hoverTimelineTime != null) {
-    t = hoverTimelineTime;
-    idx = findFloorIndexByTime(hoverTimelineTime);
-    p = interpolatePoseAtTime(hoverTimelineTime);
+    } else if (hoverTimelineTime != null) {
+      t = hoverTimelineTime;
+      idx = findFloorIndexByTime(hoverTimelineTime);
+      p = interpolatePoseAtTime(hoverTimelineTime);
 
-  } else if (!playing && !trackLockActive && trackHover?.pose) {
+    } else if (!playing && !trackLockActive && trackHover?.pose) {
     // if hover pose has a time, use interpolation (smooth) instead of the raw cached pose (snappy)
     const ht = trackHover.pose.t ?? null;
 
@@ -2791,6 +2803,7 @@
 
     const t = xToTime(x);
     selectedIndex = findFloorIndexByTime(t);
+    lastPoseIndex = selectedWatch;
     hoverTimelineTime = null;
     timelineHoverSaved = null;
 
@@ -2990,7 +3003,8 @@
       const t = toNumMaybe(parts[1]);
       if (t == null) return { posesAdded: 0, watchesAdded: 0 };
       const level = parts[2] ?? "INFO";
-      const label = parts[3] ?? "";
+      let label = parts[3] ?? "";
+      label = label.replaceAll(":", ""); 
       const value = parts.slice(4).join(",");
       watches.push({ t, level, label, value });
       return { posesAdded: 0, watchesAdded: 1 };
@@ -3076,7 +3090,6 @@
     if (btnLeftRefreshEl) btnLeftRefreshEl.disabled = !leftConnected;
     if (leftRefreshIntervalEl) leftRefreshIntervalEl.disabled = !leftConnected;
 
-    // Optional: write small state message to live window when transitions happen
     if (reason) {
       liveAppendLine(`[UI] ${reason}`);
     }
@@ -3089,6 +3102,9 @@
   }
 
   async function apiPost(path) {
+    if (path == null) return;
+    if (path == "/no HTTP/1.1" || path == "/ HTTP/1.1") return;
+
     const res = await fetch(path, { method: "POST" });
     // Best-effort JSON; don't crash UI if server returns non-JSON or 404
     let json = null;
@@ -3113,7 +3129,6 @@
       const raw = (typeof ev.data === "string") ? ev.data : "";
       const trimmed = stripToTag(raw);
       if (trimmed) {
-        liveAppendLine(trimmed);
         livePendingLines.push(trimmed);
         // cap pending buffer to avoid unbounded growth
         const MAX_PENDING = 20000;
@@ -3123,6 +3138,10 @@
           livePendingConsumed = Math.max(0, livePendingConsumed - drop);
         }
       }
+      let rawStr = raw;
+      if (trimmed) { rawStr = "🟢 " + raw}
+      else { rawStr = "🔴 " + raw }
+      liveAppendLine(rawStr); // Show raw
     });
 
     leftWs.addEventListener("close", () => {
@@ -3783,11 +3802,6 @@
     }
 
     if (e.code === "ArrowLeft") {
-      console.clear();
-            console.log(`Last pose: ${lastPoseIndex}`);
-      console.log(`Selected index: ${selectedIndex}`);
-      console.log(`liveAutoFollowHead: ${liveAutoFollowHead}`);
-      return;
       e.preventDefault();
       pause();
       clearTrackHover(true);

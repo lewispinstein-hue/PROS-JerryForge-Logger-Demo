@@ -142,8 +142,6 @@ async def start():
         # Exec PROS terminal
         os.execvp("pros", ["pros", "terminal"])
 
-        # os.execvp("python3", ["python3", "-u", "simulate-log.py"]) # Test log
-
     # Parent
     os.close(slave_fd)
     proc_pid = pid
