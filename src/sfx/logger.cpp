@@ -7,7 +7,7 @@
 
 namespace sfx {
 
-Logger &Logger::get_instance() {
+Logger &Logger::getInstance() {
   static Logger instance;
   return instance;
 }
@@ -94,7 +94,7 @@ bool Logger::setRobot(RobotRef ref) {
   }
   configSet_ = true;
 
-  if (!ref.Left_Drivetrain || !ref.Right_Drivetrain) {
+  if (!ref.LeftDrivetrain || !ref.RightDrivetrain) {
     LOG_FATAL("setRobot(RobotRef) called with nullptr drivetrain arguments!");
     return false;
   }
@@ -106,25 +106,27 @@ bool Logger::setRobot(RobotRef ref) {
   }
 
   pChassis_ = ref.chassis;
-  pLeftDrivetrain_ = ref.Left_Drivetrain;
-  pRightDrivetrain_ = ref.Right_Drivetrain;
+  pLeftDrivetrain_ = ref.LeftDrivetrain;
+  pRightDrivetrain_ = ref.RightDrivetrain;
 
   LOG_INFO("setRobot() successfully set variables!");
   return true;
 }
 
-void Logger::registerMotor(std::string name, pros::MotorGroup *motor) {
+void Logger::registerMotor(std::string name, const sfx::MotorGroup &motor) {
   MutexGuard m(generalMutex_);
   if (!m.isLocked())
     return;
 
   try {
-    if (motor != nullptr) {
-      std::shared_ptr<pros::MotorGroup> newMotor =
-          std::shared_ptr<pros::MotorGroup>(motor);
-      internalMotorsToScan_.push_back({name, newMotor});
+    auto shared = motor.shared();
+    if (shared) {
+      MotorMonitor entry;
+      entry.name = std::move(name);
+      entry.group = std::move(shared);
+      internalMotorsToScan_.push_back(std::move(entry));
     } else {
-      LOG_WARN("registerMotor called with nullptr arguments!");
+      LOG_WARN("registerMotor called with empty MotorGroup!");
     }
   } catch (std::exception &e) {
     LOG_ERROR("Exception adding motor to thermal watchdog: %s", e.what());
@@ -148,7 +150,7 @@ const char *Logger::levelToString_(LogLevel level) const {
   }
 }
 
-void Logger::log_message(LogLevel level, const char *source, const char *fmt,
+void Logger::logMessage(LogLevel level, const char *source, const char *fmt,
                          ...) {
   if (level < minLogLevel_)
     return;
@@ -413,8 +415,15 @@ void Logger::waitForStartChar() {
 
 // --- Helper extractions (minimal; called by Update) ---
 void Logger::printThermalWatchdog_() {
-  for (auto &entry : internalMotorsToScan_) {
-    auto status = motorChecks::checkMotorOverheat(*entry.group, 55.0);
+  for (auto it = internalMotorsToScan_.begin();
+       it != internalMotorsToScan_.end();) {
+    auto group = it->group.lock();
+    if (!group) {
+      it = internalMotorsToScan_.erase(it);
+      continue;
+    }
+
+    auto status = motorChecks::checkMotorOverheat(*group, 55.0);
 
     if (status.overheated) {
       std::string ports;
@@ -425,20 +434,21 @@ void Logger::printThermalWatchdog_() {
 
       if (status.maxTemp >= 65) {
         LOG_ERROR("%s CRITICAL TEMP! Max: %.0fC | Ports: %s",
-                  entry.name.c_str(), status.maxTemp, ports.c_str());
+                  it->name.c_str(), status.maxTemp, ports.c_str());
       } else {
         LOG_WARN("%s Overheating! Max: %.0fC | Ports: %s", 
-                 entry.name.c_str(), status.maxTemp, 
+                 it->name.c_str(), status.maxTemp, 
                  ports.c_str());
       }
     } else if (config_.printMotorWatchdogWarnings.load() &&
-               status.maxTemp >= 50.0) {
+               status.maxTemp >= 49) {
       LOG_WARN("%s is warm/approaching throttle. (Max: %.0fC)",
-               entry.name.c_str(), status.maxTemp);
+               it->name.c_str(), status.maxTemp);
     } else if (!config_.onlyPrintOverheatedMotors.load()) {
       LOG_INFO("%s MotorGroup OK (Max: %.0fC)", 
-               entry.name.c_str(), status.maxTemp);
+               it->name.c_str(), status.maxTemp);
     }
+    ++it;
   }
 }
 

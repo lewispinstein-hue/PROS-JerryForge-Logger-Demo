@@ -31,6 +31,10 @@ checkTemp checkMotorOverheat(pros::MotorGroup &mg, float maxTemp) {
   return params;
 }
 
+checkTemp checkMotorOverheat(sfx::MotorGroup &mg, float maxTemp) {
+  return checkMotorOverheat(*mg, maxTemp);
+}
+
 std::string formatCheckTemp(std::string_view name, const checkTemp &t,
                                   bool useAnsi) {
   std::stringstream ss;
@@ -114,6 +118,11 @@ scanMotorReturn scanMotor(pros::MotorGroup &mg, int maxAmpDraw,
   result.passed = (!result.stalled && !result.thermal.overheated);
 
   return result;
+}
+
+scanMotorReturn scanMotor(sfx::MotorGroup &mg, int maxAmpDraw,
+                          double maxVelocity, double maxTemp) {
+  return scanMotor(*mg, maxAmpDraw, maxVelocity, maxTemp);
 }
 
 std::string formatMotorScanReturn(std::string_view name,

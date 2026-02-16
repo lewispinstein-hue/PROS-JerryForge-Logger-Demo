@@ -8,6 +8,7 @@
 
 #include "pros/adi.hpp"
 #include "pros/motor_group.hpp"
+#include "sfx/Shared/MotorGroup.hpp"
 
 // Default Thresholds
 constexpr int MAX_MOTOR_TEMP = 53.0;
@@ -29,6 +30,9 @@ struct checkTemp {
  * @brief Check if a motor group is overheating (Passive).
  */
 checkTemp checkMotorOverheat(pros::MotorGroup &mg,
+                             float maxTemp = MAX_MOTOR_TEMP);
+
+checkTemp checkMotorOverheat(sfx::MotorGroup &mg,
                              float maxTemp = MAX_MOTOR_TEMP);
 
 /**
@@ -69,6 +73,10 @@ constexpr int SAMPLE_DELAY_MS = 20;
  * Checks for stalls and calls checkMotorOverheat internally.
  */
 scanMotorReturn scanMotor(pros::MotorGroup &mg, int maxAmpDraw = 2000,
+                          double maxVelocity = 80,
+                          double maxTemp = MAX_MOTOR_TEMP);
+
+scanMotorReturn scanMotor(sfx::MotorGroup &mg, int maxAmpDraw = 2000,
                           double maxVelocity = 80,
                           double maxTemp = MAX_MOTOR_TEMP);
 

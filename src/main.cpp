@@ -1,6 +1,7 @@
 #include "main.h"
+
 // Get access to LemLib's headers
-#include "lemlib/api.hpp"
+#include "lemlib/api.hpp" // IWYU pragma: keep
 
 // Get access to Sfx's headers
 #include "sfx/api.hpp"
@@ -8,13 +9,13 @@
 // Creating motors and controller
 pros::Controller controller(pros::E_CONTROLLER_MASTER);
 
-pros::MotorGroup left_mg({1, -2, 3},
-                 pros::MotorGearset::blue,
-                 pros::v5::MotorUnits::degrees); // Creates a motor group with forwards ports 1 & 3 and reversed port 2
+sfx::MotorGroup left_mg({1, -2, 3},
+                pros::MotorGearset::blue,
+                pros::v5::MotorUnits::degrees); // Creates a motor group with forwards ports 1 & 3 and reversed port 2
 
-pros::MotorGroup right_mg({-4, 5, -6},
-                 pros::MotorGearset::blue, 
-                 pros::v5::MotorUnits::degrees); // Creates a motor group with forwards port 5 and reversed ports 4 & 6
+sfx::MotorGroup right_mg({-4, 5, -6},
+                pros::MotorGearset::blue, 
+                pros::v5::MotorUnits::degrees); // Creates a motor group with forwards port 5 and reversed ports 4 & 6
 
 // Setup LemLib 
 
@@ -22,8 +23,8 @@ pros::MotorGroup right_mg({-4, 5, -6},
 pros::Imu imu(10);
 
 // drivetrain settings
-lemlib::Drivetrain drivetrain(&left_mg, // left motor group
-                              &right_mg, // right motor group
+lemlib::Drivetrain drivetrain(left_mg.get(), // left motor group
+                              right_mg.get(), // right motor group
                               10, // 10 inch track width
                               lemlib::Omniwheel::NEW_4, // using new 4" omnis
                               360, // drivetrain rpm is 360
@@ -31,18 +32,18 @@ lemlib::Drivetrain drivetrain(&left_mg, // left motor group
 );
 
 // tracking wheels are the built in IME's in the motors
-lemlib::TrackingWheel leftVerticalTrackingWheel(&left_mg,
+lemlib::TrackingWheel leftVerticalTrackingWheel(left_mg.get(),
                                                 lemlib::Omniwheel::NEW_325, -10, 400);
 
-lemlib::TrackingWheel rightVerticalTrackingWheel(&right_mg,
+lemlib::TrackingWheel rightVerticalTrackingWheel(right_mg.get(),
                                                  lemlib::Omniwheel::NEW_325,
                                                  10, 400);
 
 // odometry settings
 lemlib::OdomSensors sensors(&leftVerticalTrackingWheel, // vertical tracking wheel 1, set to null
                             &rightVerticalTrackingWheel, // vertical tracking wheel 2, set to nullptr as we are using IMEs
-                            nullptr, // horizontal tracking wheel 1
-                            nullptr, // horizontal tracking wheel 2, set to nullptr as we don't have a second one
+                            nullptr, // horizontal tracking wheel 1, set to nullptr
+                            nullptr, // horizontal tracking wheel 2, also set to nullptr
                             &imu // inertial sensor
 );
 
@@ -73,7 +74,7 @@ lemlib::ControllerSettings
     );
 
 // Finally, create the chassis
-lemlib::Chassis chassis(drivetrain, // drivetrain settings
+sfx::Chassis chassis(drivetrain, // drivetrain settings
                         lateral_controller, // lateral PID settings
                         angular_controller, // angular PID settings
                         sensors // odometry sensors
@@ -87,16 +88,16 @@ sfx::screen::Manager display;
 
 void initialize() {
   // --- Logger Setup ---
-  auto &logger = sfx::Logger::get_instance();
+  auto &logger = sfx::Logger::getInstance();
   // 1. Register motors you want to monitor
-  logger.registerMotor("Left Drive", &left_mg);
-  logger.registerMotor("Right Drive", &right_mg);
+  logger.registerMotor("Left Drive", left_mg);
+  logger.registerMotor("Right Drive", right_mg);
 
   // 2. Pass the chassis and controllers to the logger so it can record them
   logger.setRobot({
-    .chassis = sfx::shared(chassis),
-    .Left_Drivetrain = sfx::shared(left_mg),
-    .Right_Drivetrain = sfx::shared(right_mg)
+    .chassis = chassis.shared(),
+    .LeftDrivetrain = left_mg.shared(),
+    .RightDrivetrain = right_mg.shared()
   });
 
   // 3. Configure Logging Behaviors
@@ -108,7 +109,7 @@ void initialize() {
   logger.setPrintWatches(true);
   
   // 4. Calibrate & Start
-  chassis.calibrate(); // Calibrate IMU
+  chassis.v().calibrate(); // Calibrate IMU
   logger.start();      // Start the background logging task
 
   logger.watch(
@@ -193,7 +194,7 @@ void opcontrol() {
   display.drawBottomButtons(false);
 
   // Reset Pose for the demo
-  chassis.setPose(0, 0, 0);
+  chassis.v().setPose(0, 0, 0);
 
   // Wait for user input
   ButtonId button_pushed = display.waitForBottomButtonTap();
@@ -203,13 +204,13 @@ void opcontrol() {
   case ButtonId::LEFT:
     // Demo: Move forward
     display.printToScreen(true, "Running", "Move To Point");
-    chassis.moveToPoint(0, 10, 1000);
+    chassis.v().moveToPoint(0, 10, 1000);
     break;
 
   case ButtonId::MIDDLE:
     // Demo: Turn
     display.printToScreen(true, "Running", "Turn To Heading");
-    chassis.turnToHeading(180, 1000);
+    chassis.v().turnToHeading(180, 1000);
     break;
 
   case ButtonId::RIGHT: {
@@ -248,7 +249,7 @@ void opcontrol() {
       rightX = 0;
 
     // Move the robot (Curvature Drive)
-    chassis.curvature(leftY, rightX);
+    chassis.v().curvature(leftY, rightX);
 
     // Save resources
     pros::delay(20);

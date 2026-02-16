@@ -28,15 +28,18 @@
  * #include "sfx/logger.hpp"
  *
  * void initialize() {
- *   auto& logger = sfx::Logger::get_instance();
+ *   auto& logger = sfx::Logger::getInstance();
  *
  *   sfx::Logger::loggerConfig cfg{};
  *   cfg.logToTerminal = true;
  *   cfg.logToSD = false;
- *   logger.initialize(cfg);          // optional; recommended
  *
  *   // Optional: provide robot references used by watchdogs/pose printing.
- *   logger.setRobot({ SHARED(chassis), SHARED(leftDrive), SHARED(rightDrive) });
+ *   logger.setRobot({
+ *     .chassis = sfx::shared(chassis),
+ *     .LeftDrivetrain = leftDrive.shared(),
+ *     .RightDrivetrain = rightDrive.shared()
+ *   });
  *
  *   logger.start();
  * }
@@ -46,8 +49,7 @@
 #include "lemlib/chassis/chassis.hpp"
 #include "pros/motor_group.hpp"
 #include "pros/rtos.hpp"
-
-
+#include "sfx/Shared/MotorGroup.hpp"
 
 namespace sfx {
 
@@ -89,13 +91,13 @@ namespace sfx {
 
 /**
  * @defgroup LoggingMacros Logging Macros
- * @brief Convenience wrappers around sfx::Logger::log_message().
+ * @brief Convenience wrappers around sfx::Logger::logMessage().
  *
  * Where to use them:
  * - Most call-sites that just want to log something quickly.
  *
  * When to use them:
- * - Prefer LOG_INFO/WARN/ERROR over calling log_message() directly unless you
+ * - Prefer LOG_INFO/WARN/ERROR over calling logMessage() directly unless you
  *   need a custom source pointer or you are writing logger internals.
  *
  * @note These macros use LOG_SOURCE to tag messages per translation unit.
@@ -104,27 +106,27 @@ namespace sfx {
 
 /// @brief Log a DEBUG-level message (usually noisy, for development).
 #define LOG_DEBUG(fmt, ...)                                                    \
-  sfx::Logger::get_instance().log_message(                                     \
+  sfx::Logger::getInstance().logMessage(                                     \
       sfx::LogLevel::DEBUG, _SFX_CURRENT_SOURCE, fmt, ##__VA_ARGS__)
 
 /// @brief Log an INFO-level message (normal operational breadcrumbs).
 #define LOG_INFO(fmt, ...)                                                     \
-  sfx::Logger::get_instance().log_message(                                     \
+  sfx::Logger::getInstance().logMessage(                                     \
       sfx::LogLevel::INFO, _SFX_CURRENT_SOURCE, fmt, ##__VA_ARGS__)
 
 /// @brief Log a WARN-level message (unexpected but recoverable situations).
 #define LOG_WARN(fmt, ...)                                                     \
-  sfx::Logger::get_instance().log_message(                                     \
+  sfx::Logger::getInstance().logMessage(                                     \
       sfx::LogLevel::WARN, _SFX_CURRENT_SOURCE, fmt, ##__VA_ARGS__)
 
 /// @brief Log an ERROR-level message (failure that likely affects behavior).
 #define LOG_ERROR(fmt, ...)                                                    \
-  sfx::Logger::get_instance().log_message(                                     \
+  sfx::Logger::getInstance().logMessage(                                     \
       sfx::LogLevel::ERROR, _SFX_CURRENT_SOURCE, fmt, ##__VA_ARGS__)
 
 /// @brief Log a FATAL-level message (serious failure; usually precedes a stop).
 #define LOG_FATAL(fmt, ...)                                                    \
-  sfx::Logger::get_instance().log_message(                                     \
+  sfx::Logger::getInstance().logMessage(                                     \
       sfx::LogLevel::FATAL, _SFX_CURRENT_SOURCE, fmt, ##__VA_ARGS__)
 /** @} */
 
@@ -216,12 +218,12 @@ using WatchId = uint64_t;
  * Example:
  * @code
  * lemlib::Chassis chassis(...);
- * pros::MotorGroup left(...), right(...);
+ * sfx::MotorGroup left(...), right(...);
  *
  * logger.setRobot({
  *   .chassis = sfx::shared(chassis),
- *   .Left_Drivetrain = sfx::shared(left),
- *   .Right_Drivetrain = sfx::shared(right)
+ *   .LeftDrivetrain = left.shared(),
+ *   .RightDrivetrain = right.shared()
  * });
  * @endcode
  */
@@ -329,15 +331,15 @@ public:
    */
   struct RobotRef {
     std::shared_ptr<lemlib::Chassis>  chassis;           ///< @brief LemLib chassis used for pose telemetry.
-    std::shared_ptr<pros::MotorGroup> Left_Drivetrain;   ///< @brief Left drivetrain motors for thermal scanning.
-    std::shared_ptr<pros::MotorGroup> Right_Drivetrain;  ///< @brief Right drivetrain motors for thermal scanning.
+    std::shared_ptr<pros::MotorGroup> LeftDrivetrain;   ///< @brief Left drivetrain motors for thermal scanning.
+    std::shared_ptr<pros::MotorGroup> RightDrivetrain;  ///< @brief Right drivetrain motors for thermal scanning.
   };
 
   /**
    * @brief Access the singleton logger instance.
    * \return Reference to the global Logger instance.
    */
-  static Logger &get_instance();
+  [[nodiscard]] static Logger &getInstance();
 
   // ------------------------------------------------------------------------
   // Lifecycle
@@ -365,7 +367,7 @@ public:
    *
    * @note The bitmap returned is from FreeRTOS Task Status Enum (pros::task_state_e_t).
    */
-  uint32_t status() const;
+  [[nodiscard]] uint32_t status() const;
 
   // ------------------------------------------------------------------------
   // Config setters/getters
@@ -476,11 +478,11 @@ public:
   /**
    * @brief Register an additional motor group for monitoring.
    * @param name Human-readable name for telemetry output.
-   * @param motor Motor group pointer to monitor.
+   * @param motor Motor group wrapper (shared ownership).
    *
-   * @note If you pass a raw pointer, ensure its lifetime exceeds the Logger's.
+   * @note If the MotorGroup is destroyed, the entry is automatically removed.
    */
-  void registerMotor(std::string name, pros::MotorGroup *motor);
+  void registerMotor(std::string name, const sfx::MotorGroup &motor);
 
   // ------------------------------------------------------------------------
   // Logging
@@ -495,12 +497,12 @@ public:
    * @param source Optional source tag string (may be nullptr).
    * @param fmt printf-style format string.
    */
-  void log_message(LogLevel level, const char *source, const char *fmt, ...);
+  void logMessage(LogLevel level, const char *source, const char *fmt, ...);
 
   /**
    * @brief Write a formatted log line to the SD log file.
    *
-   * @note This is typically called by log_message() when SD logging is enabled.
+   * @note This is typically called by logMessage() when SD logging is enabled.
    */
   void logToSD(const char *levelStr, const char *fmt, ...);
 
@@ -537,7 +539,7 @@ public:
    *
    * Example:
    * @code
-   * auto& logger = sfx::Logger::get_instance();
+   * auto& logger = sfx::Logger::getInstance();
    * logger.watch("Intake RPM:", sfx::LogLevel::INFO, 
    * uint32_t{1000}, // The uint32_t{} is needed to disambiguate the overload
    * [&](){ return left_mg.get_actual_velocity(); },
@@ -779,7 +781,7 @@ private:
    */
   struct MotorMonitor {
     std::string name;                          ///< @brief Display name.
-    std::shared_ptr<pros::MotorGroup> group = nullptr; ///< @brief Motor group pointer (shared ownership if provided).
+    std::weak_ptr<pros::MotorGroup> group;     ///< @brief Weak reference for auto-removal.
   };
 
   // ------------------------------------------------------------------------
